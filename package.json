@@ -1,0 +1,95 @@
+{
+  "name": "kioskarcade-os",
+  "version": "1.0.0",
+  "description": "A secure Electron-based WebGL arcade system for Windows 11 kiosk mode",
+  "main": "electron-app/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:electron\" \"npm run dev:renderer\"",
+    "dev:electron": "tsc -p electron-app/tsconfig.json && electron electron-app/main.js",
+    "dev:renderer": "cd electron-app/renderer && npm run dev",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "cd electron-app/renderer && npm run build",
+    "build:electron": "tsc -p electron-app/tsconfig.json",
+    "build:binary": "npm run build && electron-builder",
+    "test": "jest",
+    "test:e2e": "playwright test",
+    "test:admin": "cd electron-app/renderer && npm run test",
+    "mock:pubsub": "node pubsub-mock/server.js",
+    "mock:pos": "node pos-simulator/server.js",
+    "setup:kiosk": "powershell -ExecutionPolicy Bypass -File scripts/setup-kiosk.ps1",
+    "token:rotate": "ts-node scripts/token-rotate.ts",
+    "start": "electron electron-app/main.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "keywords": [
+    "arcade",
+    "electron",
+    "webgl",
+    "kiosk",
+    "windows11",
+    "gaming",
+    "security"
+  ],
+  "author": "KioskArcade Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/jest": "^29.5.8",
+    "@playwright/test": "^1.40.0",
+    "concurrently": "^8.2.2",
+    "electron": "^27.1.0",
+    "electron-builder": "^24.6.4",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.2",
+    "ts-node": "^10.9.1"
+  },
+  "dependencies": {
+    "@google-cloud/pubsub": "^4.0.0",
+    "express": "^4.18.2",
+    "sqlite3": "^5.1.6",
+    "node-fetch": "^3.3.2",
+    "crypto": "^1.0.1",
+    "fs-extra": "^11.1.1",
+    "chokidar": "^3.5.3",
+    "winston": "^3.11.0",
+    "uuid": "^9.0.1",
+    "bcryptjs": "^2.4.3"
+  },
+  "build": {
+    "appId": "com.kioskarcade.os",
+    "productName": "KioskArcade OS",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-app/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
+    }
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ],
+    "collectCoverageFrom": [
+      "electron-app/**/*.ts",
+      "scripts/**/*.ts",
+      "!**/*.d.ts"
+    ]
+  }
+} 
