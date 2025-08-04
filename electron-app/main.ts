@@ -1,0 +1,327 @@
+import { app, BrowserWindow, BrowserView, ipcMain, globalShortcut, screen, session } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs-extra';
+import { TokenManager } from './services/TokenManager';
+import { GameManager } from './services/GameManager';
+import { AdminManager } from './services/AdminManager';
+import { SecurityManager } from './services/SecurityManager';
+import { Logger } from './utils/Logger';
+
+class KioskArcadeApp {
+  private mainWindow: BrowserWindow | null = null;
+  private gameView: BrowserView | null = null;
+  private adminWindow: BrowserWindow | null = null;
+  private tokenManager: TokenManager;
+  private gameManager: GameManager;
+  private adminManager: AdminManager;
+  private securityManager: SecurityManager;
+  private logger: Logger;
+
+  constructor() {
+    this.logger = new Logger();
+    this.tokenManager = new TokenManager();
+    this.gameManager = new GameManager();
+    this.adminManager = new AdminManager();
+    this.securityManager = new SecurityManager();
+  }
+
+  async initialize(): Promise<void> {
+    try {
+      // Ensure app is single instance
+      const gotTheLock = app.requestSingleInstanceLock();
+      if (!gotTheLock) {
+        app.quit();
+        return;
+      }
+
+      // Initialize services
+      await this.tokenManager.initialize();
+      await this.gameManager.initialize();
+      await this.securityManager.initialize();
+
+      // Setup app event handlers
+      this.setupAppEventHandlers();
+      
+      // Create main window
+      await this.createMainWindow();
+      
+      // Setup IPC handlers
+      this.setupIpcHandlers();
+      
+      // Setup global shortcuts (blocked)
+      this.setupGlobalShortcuts();
+      
+      this.logger.info('KioskArcade OS initialized successfully');
+    } catch (error) {
+      this.logger.error('Failed to initialize KioskArcade OS:', error);
+      app.quit();
+    }
+  }
+
+  private setupAppEventHandlers(): void {
+    app.on('window-all-closed', () => {
+      // Prevent app from closing when all windows are closed
+      this.logger.info('All windows closed, but app remains running');
+    });
+
+    app.on('activate', () => {
+      if (this.mainWindow === null) {
+        this.createMainWindow();
+      }
+    });
+
+    app.on('before-quit', (event) => {
+      // Prevent accidental quit
+      event.preventDefault();
+      this.logger.warn('Quit attempt blocked');
+    });
+
+    app.on('second-instance', () => {
+      // Focus existing window if second instance is launched
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) {
+          this.mainWindow.restore();
+        }
+        this.mainWindow.focus();
+      }
+    });
+  }
+
+  private async createMainWindow(): Promise<void> {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.size;
+
+    this.mainWindow = new BrowserWindow({
+      width,
+      height,
+      x: 0,
+      y: 0,
+      fullscreen: true,
+      kiosk: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        preload: path.join(__dirname, 'preload.js'),
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        experimentalFeatures: false
+      },
+      show: false,
+      frame: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      titleBarStyle: 'hidden',
+      autoHideMenuBar: true
+    });
+
+    // Load the main interface
+    if (process.env.NODE_ENV === 'development') {
+      await this.mainWindow.loadURL('http://localhost:3000');
+    } else {
+      await this.mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    }
+
+    // Prevent window from being closed
+    this.mainWindow.on('close', (event) => {
+      event.preventDefault();
+      this.logger.warn('Window close attempt blocked');
+    });
+
+    // Prevent window from being resized
+    this.mainWindow.on('resize', () => {
+      this.mainWindow?.setFullScreen(true);
+    });
+
+    // Show window when ready
+    this.mainWindow.once('ready-to-show', () => {
+      this.mainWindow?.show();
+      this.logger.info('Main window ready');
+    });
+
+    // Handle window focus
+    this.mainWindow.on('blur', () => {
+      this.mainWindow?.focus();
+    });
+  }
+
+  private setupIpcHandlers(): void {
+    // Admin interface handlers
+    ipcMain.handle('admin:login', async (event, password: string) => {
+      return await this.adminManager.authenticate(password);
+    });
+
+    ipcMain.handle('admin:get-config', async () => {
+      return await this.adminManager.getConfiguration();
+    });
+
+    ipcMain.handle('admin:update-config', async (event, config: any) => {
+      return await this.adminManager.updateConfiguration(config);
+    });
+
+    ipcMain.handle('admin:test-network', async () => {
+      return await this.adminManager.testNetworkConnectivity();
+    });
+
+    ipcMain.handle('admin:sync-games', async () => {
+      return await this.gameManager.syncGames();
+    });
+
+    ipcMain.handle('admin:get-logs', async () => {
+      return await this.logger.getLogs();
+    });
+
+    // Game management handlers
+    ipcMain.handle('game:launch', async (event, gameId: string) => {
+      return await this.launchGame(gameId);
+    });
+
+    ipcMain.handle('game:list', async () => {
+      return await this.gameManager.getGameList();
+    });
+
+    ipcMain.handle('game:update', async (event, gameId: string) => {
+      return await this.gameManager.updateGame(gameId);
+    });
+
+    // Token management handlers
+    ipcMain.handle('token:get', async () => {
+      return await this.tokenManager.getCurrentToken();
+    });
+
+    ipcMain.handle('token:rotate', async () => {
+      return await this.tokenManager.rotateToken();
+    });
+
+    // Security handlers
+    ipcMain.handle('security:lockdown', async () => {
+      return await this.securityManager.enableLockdown();
+    });
+
+    ipcMain.handle('security:status', async () => {
+      return await this.securityManager.getStatus();
+    });
+  }
+
+  private setupGlobalShortcuts(): void {
+    // Block all common escape shortcuts
+    const blockedShortcuts = [
+      'CommandOrControl+Q',
+      'CommandOrControl+W',
+      'CommandOrControl+R',
+      'F11',
+      'F12',
+      'Escape',
+      'Alt+F4',
+      'Alt+Tab',
+      'CommandOrControl+Alt+Delete',
+      'CommandOrControl+Shift+Esc'
+    ];
+
+    blockedShortcuts.forEach(shortcut => {
+      globalShortcut.register(shortcut, () => {
+        this.logger.warn(`Blocked shortcut: ${shortcut}`);
+        return false;
+      });
+    });
+
+    this.logger.info('Global shortcuts blocked');
+  }
+
+  private async launchGame(gameId: string): Promise<boolean> {
+    try {
+      const gamePath = await this.gameManager.getGamePath(gameId);
+      if (!gamePath) {
+        throw new Error(`Game ${gameId} not found`);
+      }
+
+      // Create game view
+      this.gameView = new BrowserView({
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          webSecurity: true,
+          allowRunningInsecureContent: false
+        }
+      });
+
+      // Set game view bounds to full screen
+      const bounds = this.mainWindow?.getBounds();
+      if (bounds) {
+        this.gameView.setBounds(bounds);
+        this.gameView.setAutoResize({ width: true, height: true });
+      }
+
+      // Add game view to main window
+      this.mainWindow?.addBrowserView(this.gameView);
+
+      // Load game
+      await this.gameView.webContents.loadFile(gamePath);
+      
+      // Focus game view
+      this.gameView.webContents.focus();
+
+      this.logger.info(`Game ${gameId} launched successfully`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to launch game ${gameId}:`, error);
+      return false;
+    }
+  }
+
+  private async showAdminInterface(): Promise<void> {
+    if (this.adminWindow) {
+      this.adminWindow.focus();
+      return;
+    }
+
+    this.adminWindow = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        preload: path.join(__dirname, 'preload.js')
+      },
+      show: false,
+      frame: true,
+      resizable: true,
+      minimizable: true,
+      maximizable: true,
+      closable: true
+    });
+
+    if (process.env.NODE_ENV === 'development') {
+      await this.adminWindow.loadURL('http://localhost:3000/admin');
+    } else {
+      await this.adminWindow.loadFile(path.join(__dirname, 'renderer', 'admin.html'));
+    }
+
+    this.adminWindow.once('ready-to-show', () => {
+      this.adminWindow?.show();
+    });
+
+    this.adminWindow.on('closed', () => {
+      this.adminWindow = null;
+    });
+  }
+}
+
+// Initialize app when Electron is ready
+app.whenReady().then(async () => {
+  const kioskApp = new KioskArcadeApp();
+  await kioskApp.initialize();
+});
+
+// Quit when all windows are closed (except on macOS)
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+}); 
