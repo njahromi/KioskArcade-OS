@@ -39,7 +39,7 @@ kioskarcade/
 
 1. **Clone and Install Dependencies**
    ```bash
-   git clone [https://github.com/njahromi/KioskArcade-OS]
+   git clone https://github.com/njahromi/KioskArcade-OS
    cd KioskArcade-OS
    npm install
    ```
