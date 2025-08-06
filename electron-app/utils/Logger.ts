@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as winston from 'winston';
 
 export class Logger {
-  private logger: winston.Logger;
+  private logger!: winston.Logger;
   private readonly logDir: string;
   private readonly logFile: string;
 

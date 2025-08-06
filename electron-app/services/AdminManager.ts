@@ -1,7 +1,6 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as bcrypt from 'bcryptjs';
-import fetch from 'node-fetch';
 import { Logger } from '../utils/Logger';
 
 interface ArcadeConfig {
@@ -166,8 +165,7 @@ export class AdminManager {
       
       // Test basic connectivity
       const response = await fetch('https://httpbin.org/get', {
-        method: 'GET',
-        timeout: 10000
+        method: 'GET'
       });
 
       if (!response.ok) {
@@ -179,8 +177,7 @@ export class AdminManager {
       // Test download speed (simplified)
       const downloadStart = Date.now();
       const downloadResponse = await fetch('https://httpbin.org/bytes/1024', {
-        method: 'GET',
-        timeout: 10000
+        method: 'GET'
       });
       const downloadData = await downloadResponse.arrayBuffer();
       const downloadTime = Date.now() - downloadStart;
@@ -191,8 +188,7 @@ export class AdminManager {
       const uploadResponse = await fetch('https://httpbin.org/post', {
         method: 'POST',
         body: 'A'.repeat(1024), // 1KB test data
-        headers: { 'Content-Type': 'text/plain' },
-        timeout: 10000
+        headers: { 'Content-Type': 'text/plain' }
       });
       const uploadTime = Date.now() - uploadStart;
       const uploadSpeed = 1 / (uploadTime / 1000); // KB/s

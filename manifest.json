@@ -1,0 +1,54 @@
+{
+  "games": [
+    {
+      "id": "tetris",
+      "name": "Tetris Classic",
+      "version": "1.0.0",
+      "size": 1024000,
+      "url": "https://example.com/games/tetris.zip",
+      "checksum": "abc123",
+      "description": "Classic Tetris game with modern graphics",
+      "thumbnail": "tetris-thumb.png",
+      "category": "Puzzle",
+      "tags": [
+        "puzzle",
+        "classic",
+        "single-player"
+      ]
+    },
+    {
+      "id": "snake",
+      "name": "Snake Game",
+      "version": "1.0.0",
+      "size": 512000,
+      "url": "https://example.com/games/snake.zip",
+      "checksum": "def456",
+      "description": "Classic snake game with WebGL graphics",
+      "thumbnail": "snake-thumb.png",
+      "category": "Arcade",
+      "tags": [
+        "arcade",
+        "classic",
+        "single-player"
+      ]
+    },
+    {
+      "id": "pong",
+      "name": "Pong Classic",
+      "version": "1.0.0",
+      "size": 256000,
+      "url": "https://example.com/games/pong.zip",
+      "checksum": "ghi789",
+      "description": "Classic Pong game with modern controls",
+      "thumbnail": "pong-thumb.png",
+      "category": "Sports",
+      "tags": [
+        "sports",
+        "classic",
+        "multiplayer"
+      ]
+    }
+  ],
+  "lastUpdated": "2025-08-06T04:18:41.966Z",
+  "version": "1.0.0"
+}

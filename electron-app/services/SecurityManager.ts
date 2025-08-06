@@ -21,7 +21,7 @@ interface SecurityEvent {
 export class SecurityManager {
   private readonly logger: Logger;
   private readonly securityLogPath: string;
-  private readonly events: SecurityEvent[] = [];
+  private events: SecurityEvent[] = [];
   private securityStatus: SecurityStatus;
   private sessionStartTime: Date | null = null;
 

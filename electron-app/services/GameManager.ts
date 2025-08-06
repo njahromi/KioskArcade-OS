@@ -1,7 +1,7 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import fetch from 'node-fetch';
+
 import { Logger } from '../utils/Logger';
 
 interface GameManifest {

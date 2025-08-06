@@ -44,9 +44,8 @@ export class TokenManager {
     // Generate a unique arcade ID based on hardware characteristics
     const os = require('os');
     const networkInterfaces = os.networkInterfaces();
-    const macAddress = Object.values(networkInterfaces)
-      .flat()
-      .find((iface: any) => !iface.internal && iface.mac !== '00:00:00:00:00:00')?.mac || 'unknown';
+    const interfaces = Object.values(networkInterfaces).flat() as any[];
+    const macAddress = interfaces.find((iface: any) => !iface.internal && iface.mac !== '00:00:00:00:00:00')?.mac || 'unknown';
     
     const hash = crypto.createHash('sha256');
     hash.update(macAddress + os.hostname() + os.platform());
