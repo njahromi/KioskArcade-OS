@@ -63,7 +63,12 @@ export class SecurityManager {
           try {
             const event = JSON.parse(line);
             if (event && event.timestamp && event.event) {
-              this.events.push(event);
+              // Convert timestamp string to Date object
+              const parsedEvent: SecurityEvent = {
+                ...event,
+                timestamp: new Date(event.timestamp)
+              };
+              this.events.push(parsedEvent);
             }
           } catch {
             // Skip invalid JSON lines
