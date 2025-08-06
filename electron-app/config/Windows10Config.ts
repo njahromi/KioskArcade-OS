@@ -67,14 +67,13 @@ export const windows10Config: Partial<AppConfig> = {
   }
 };
 
-export class Windows10ConfigManager {
+export class Windows10ConfigManager extends ConfigManager {
   private static instance: Windows10ConfigManager;
-  private config: AppConfig;
   
   private constructor() {
-    // Import the default config and merge with Windows 10 specific settings
-    const { defaultConfig } = require('./AppConfig');
-    this.config = { ...defaultConfig, ...windows10Config };
+    super();
+    // Override config with Windows 10 specific settings
+    this.updateConfig(windows10Config);
   }
   
   static getInstance(): Windows10ConfigManager {
@@ -82,14 +81,6 @@ export class Windows10ConfigManager {
       Windows10ConfigManager.instance = new Windows10ConfigManager();
     }
     return Windows10ConfigManager.instance;
-  }
-  
-  getConfig(): AppConfig {
-    return this.config;
-  }
-  
-  updateConfig(updates: Partial<AppConfig>): void {
-    this.config = { ...this.config, ...updates };
   }
   
   // Windows 10 specific methods

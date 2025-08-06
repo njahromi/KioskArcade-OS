@@ -27,7 +27,7 @@ class KioskArcadeApp {
   private readonly analyticsManager: AnalyticsManager;
   private readonly multiArcadeManager: MultiArcadeManager;
   private readonly logger: Logger;
-  private readonly configManager: ConfigManager;
+  private readonly configManager: ConfigManager | Windows10ConfigManager;
   private readonly config: KioskArcadeConfig;
 
   constructor() {
@@ -125,13 +125,17 @@ class KioskArcadeApp {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.size;
 
+    // Check if we're on Windows 10 and adjust window settings accordingly
+    const isWindows10 = process.platform === 'win32' && process.getSystemVersion().startsWith('10.');
+    const useKioskMode = !isWindows10; // Disable kiosk mode on Windows 10
+    
     this.mainWindow = new BrowserWindow({
       width,
       height,
       x: 0,
       y: 0,
       fullscreen: true,
-      kiosk: true,
+      kiosk: useKioskMode,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -142,15 +146,15 @@ class KioskArcadeApp {
         experimentalFeatures: false
       },
       show: false,
-      frame: false,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      closable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      titleBarStyle: 'hidden',
-      autoHideMenuBar: true
+      frame: !useKioskMode, // Show frame on Windows 10 for easier testing
+      resizable: !useKioskMode,
+      minimizable: !useKioskMode,
+      maximizable: !useKioskMode,
+      closable: !useKioskMode,
+      skipTaskbar: useKioskMode,
+      alwaysOnTop: useKioskMode,
+      titleBarStyle: useKioskMode ? 'hidden' : 'default',
+      autoHideMenuBar: useKioskMode
     });
 
     // Load the main interface
