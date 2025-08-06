@@ -156,7 +156,7 @@ npm run dev
 ### Available Scripts
 ```bash
 # Development
-npm run dev                    # Start development mode
+npm run dev                   # Start development mode
 npm run dev:electron          # Start Electron only
 npm run dev:renderer          # Start renderer only
 
@@ -166,7 +166,7 @@ npm run build:renderer        # Build renderer only
 npm run build:electron        # Build Electron only
 
 # Testing
-npm run test                  # Run tests
+npm run test                 # Run tests
 npm run test:e2e             # Run end-to-end tests
 
 # Utilities
@@ -247,7 +247,6 @@ MIT License - see LICENSE file for details
 - **Documentation**: See docs/ folder
 - **Issues**: Report bugs via GitHub Issues
 - **Discussions**: Use GitHub Discussions for questions
-- **Email**: support@kioskarcade.com
 
 ## 🔄 Changelog
 
