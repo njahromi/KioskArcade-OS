@@ -32,6 +32,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status: () => ipcRenderer.invoke('security:status')
   },
 
+  // Analytics methods
+  analytics: {
+    getSummary: () => ipcRenderer.invoke('analytics:get-summary'),
+    exportData: () => ipcRenderer.invoke('analytics:export-data'),
+    clearData: () => ipcRenderer.invoke('analytics:clear-data')
+  },
+
+  // Multi-arcade management methods
+  multiArcade: {
+    getStatus: () => ipcRenderer.invoke('multiarcade:get-status'),
+    getUnits: () => ipcRenderer.invoke('multiarcade:get-units'),
+    addUnit: (unit: any) => ipcRenderer.invoke('multiarcade:add-unit', unit),
+    removeUnit: (unitId: string) => ipcRenderer.invoke('multiarcade:remove-unit', unitId),
+    distributeGame: (gameId: string, units: string[]) => ipcRenderer.invoke('multiarcade:distribute-game', gameId, units)
+  },
+
+  // Configuration methods
+  config: {
+    get: () => ipcRenderer.invoke('config:get'),
+    update: (updates: any) => ipcRenderer.invoke('config:update', updates),
+    isFeatureEnabled: (feature: string) => ipcRenderer.invoke('config:is-feature-enabled', feature)
+  },
+
   // System information
   system: {
     getVersion: () => process.versions.electron,
@@ -64,6 +87,23 @@ declare global {
       security: {
         lockdown: () => Promise<boolean>;
         status: () => Promise<any>;
+      };
+      analytics: {
+        getSummary: () => Promise<any>;
+        exportData: () => Promise<any>;
+        clearData: () => Promise<boolean>;
+      };
+      multiArcade: {
+        getStatus: () => Promise<any>;
+        getUnits: () => Promise<any[]>;
+        addUnit: (unit: any) => Promise<boolean>;
+        removeUnit: (unitId: string) => Promise<boolean>;
+        distributeGame: (gameId: string, units: string[]) => Promise<boolean>;
+      };
+      config: {
+        get: () => Promise<any>;
+        update: (updates: any) => Promise<boolean>;
+        isFeatureEnabled: (feature: string) => Promise<boolean>;
       };
       system: {
         getVersion: () => string;
