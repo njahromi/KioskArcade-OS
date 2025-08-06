@@ -8,7 +8,6 @@ import { AnalyticsManager } from './services/AnalyticsManager';
 import { MultiArcadeManager } from './services/MultiArcadeManager';
 import { Logger } from './utils/Logger';
 import { ConfigManager } from './config/AppConfig';
-import { Windows10ConfigManager } from './config/Windows10Config';
 
 interface KioskArcadeConfig {
   readonly isDevelopment: boolean;
