@@ -4,7 +4,10 @@ import { TokenManager } from './services/TokenManager';
 import { GameManager } from './services/GameManager';
 import { AdminManager } from './services/AdminManager';
 import { SecurityManager } from './services/SecurityManager';
+import { AnalyticsManager } from './services/AnalyticsManager';
+import { MultiArcadeManager } from './services/MultiArcadeManager';
 import { Logger } from './utils/Logger';
+import { ConfigManager } from './config/AppConfig';
 
 interface KioskArcadeConfig {
   readonly isDevelopment: boolean;
@@ -20,15 +23,21 @@ class KioskArcadeApp {
   private readonly gameManager: GameManager;
   private readonly adminManager: AdminManager;
   private readonly securityManager: SecurityManager;
+  private readonly analyticsManager: AnalyticsManager;
+  private readonly multiArcadeManager: MultiArcadeManager;
   private readonly logger: Logger;
+  private readonly configManager: ConfigManager;
   private readonly config: KioskArcadeConfig;
 
   constructor() {
     this.logger = new Logger();
+    this.configManager = ConfigManager.getInstance();
     this.tokenManager = new TokenManager();
     this.gameManager = new GameManager();
     this.adminManager = new AdminManager();
     this.securityManager = new SecurityManager();
+    this.analyticsManager = new AnalyticsManager();
+    this.multiArcadeManager = new MultiArcadeManager();
     
     this.config = {
       isDevelopment: process.env.NODE_ENV === 'development',
@@ -46,11 +55,14 @@ class KioskArcadeApp {
         return;
       }
 
-      // Initialize services
+      // Initialize services in parallel
       await Promise.all([
         this.tokenManager.initialize(),
         this.gameManager.initialize(),
-        this.securityManager.initialize()
+        this.securityManager.initialize(),
+        this.adminManager.initialize(),
+        this.analyticsManager.initialize(),
+        this.multiArcadeManager.initialize()
       ]);
 
       // Setup app event handlers
@@ -64,6 +76,9 @@ class KioskArcadeApp {
       
       // Setup global shortcuts (blocked)
       this.setupGlobalShortcuts();
+      
+      // Start analytics session
+      await this.analyticsManager.startUserSession();
       
       this.logger.info('KioskArcade OS initialized successfully');
     } catch (error) {
@@ -191,7 +206,11 @@ class KioskArcadeApp {
 
     // Game management handlers
     ipcMain.handle('game:launch', async (_event, gameId: string) => {
-      return await this.launchGame(gameId);
+      const result = await this.launchGame(gameId);
+      if (result) {
+        await this.analyticsManager.trackEvent('game_launched', 'game_activity', { gameId });
+      }
+      return result;
     });
 
     ipcMain.handle('game:list', async () => {
@@ -218,6 +237,54 @@ class KioskArcadeApp {
 
     ipcMain.handle('security:status', async () => {
       return await this.securityManager.getStatus();
+    });
+
+    // Analytics handlers
+    ipcMain.handle('analytics:get-summary', async () => {
+      return await this.analyticsManager.getAnalyticsSummary();
+    });
+
+    ipcMain.handle('analytics:export-data', async () => {
+      return await this.analyticsManager.exportAnalyticsData();
+    });
+
+    ipcMain.handle('analytics:clear-data', async () => {
+      return await this.analyticsManager.clearAnalyticsData();
+    });
+
+    // Multi-arcade handlers
+    ipcMain.handle('multiarcade:get-status', async () => {
+      return await this.multiArcadeManager.getClusterStatus();
+    });
+
+    ipcMain.handle('multiarcade:get-units', async () => {
+      return await this.multiArcadeManager.getAllUnitStatuses();
+    });
+
+    ipcMain.handle('multiarcade:add-unit', async (_event, unit: any) => {
+      return await this.multiArcadeManager.addUnit(unit);
+    });
+
+    ipcMain.handle('multiarcade:remove-unit', async (_event, unitId: string) => {
+      return await this.multiArcadeManager.removeUnit(unitId);
+    });
+
+    ipcMain.handle('multiarcade:distribute-game', async (_event, gameId: string, units: string[]) => {
+      return await this.multiArcadeManager.distributeGame(gameId, units);
+    });
+
+    // Configuration handlers
+    ipcMain.handle('config:get', async () => {
+      return this.configManager.getConfig();
+    });
+
+    ipcMain.handle('config:update', async (_event, updates: any) => {
+      this.configManager.updateConfig(updates);
+      return true;
+    });
+
+    ipcMain.handle('config:is-feature-enabled', async (_event, feature: string) => {
+      return this.configManager.isFeatureEnabled(feature as keyof any);
     });
   }
 
@@ -248,6 +315,14 @@ class KioskArcadeApp {
 
   private async launchGame(gameId: string): Promise<boolean> {
     try {
+      // Check if multi-arcade is enabled and select appropriate unit
+      if (this.configManager.isMultiArcadeEnabled()) {
+        const loadBalancingResult = await this.multiArcadeManager.selectUnitForGame(gameId);
+        if (loadBalancingResult) {
+          this.logger.info(`Selected unit ${loadBalancingResult.targetUnit} for game ${gameId}`);
+        }
+      }
+
       const gamePath = await this.gameManager.getGamePath(gameId);
       if (!gamePath) {
         throw new Error(`Game ${gameId} not found`);
@@ -279,6 +354,13 @@ class KioskArcadeApp {
       
       // Focus game view
       this.gameView.webContents.focus();
+
+      // Track game play time
+      const startTime = Date.now();
+      this.gameView.webContents.on('did-navigate', async () => {
+        const playTime = Date.now() - startTime;
+        await this.analyticsManager.trackGamePlay(gameId, playTime);
+      });
 
       this.logger.info(`Game ${gameId} launched successfully`);
       return true;
