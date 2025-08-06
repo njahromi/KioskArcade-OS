@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Windows10ConfigManager = exports.windows10Config = void 0;
+const AppConfig_1 = require("./AppConfig");
 exports.windows10Config = {
     app: {
         name: 'KioskArcade OS',
@@ -60,7 +61,7 @@ exports.windows10Config = {
         qrCodeAccess: true
     }
 };
-class Windows10ConfigManager extends ConfigManager {
+class Windows10ConfigManager extends AppConfig_1.ConfigManager {
     constructor() {
         super();
         // Override config with Windows 10 specific settings
