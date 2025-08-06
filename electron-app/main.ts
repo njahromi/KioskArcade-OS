@@ -284,7 +284,7 @@ class KioskArcadeApp {
     });
 
     ipcMain.handle('config:is-feature-enabled', async (_event, feature: string) => {
-      return this.configManager.isFeatureEnabled(feature as keyof any);
+      return this.configManager.isFeatureEnabled(feature as keyof import('./config/AppConfig').AppConfig);
     });
   }
 
