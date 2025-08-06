@@ -1,33 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery } from 'react-query';
 import toast from 'react-hot-toast';
-import { GameController, Settings, Power, Users, Activity } from 'lucide-react';
+import { Activity, Settings } from 'lucide-react';
 import GameGrid from './components/GameGrid';
 import SystemStatus from './components/SystemStatus';
 import AdminAccess from './components/AdminAccess';
 
 interface Game {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  thumbnail: string;
-  isInstalled: boolean;
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly thumbnail: string;
+  readonly isInstalled: boolean;
 }
 
 interface SystemInfo {
-  arcadeId: string;
-  locationId: string;
-  locationName: string;
-  uptime: number;
-  gamesInstalled: number;
-  lastSync: string;
+  readonly arcadeId: string;
+  readonly locationId: string;
+  readonly locationName: string;
+  readonly uptime: number;
+  readonly gamesInstalled: number;
+  readonly lastSync: string;
 }
+
+type ViewType = 'games' | 'admin' | 'status';
 
 const App: React.FC = () => {
   const [isAdminMode, setIsAdminMode] = useState(false);
-  const [showSystemStatus, setShowSystemStatus] = useState(false);
-  const [currentView, setCurrentView] = useState<'games' | 'admin' | 'status'>('games');
+  const [currentView, setCurrentView] = useState<ViewType>('games');
 
   // Fetch games list
   const { data: games, isLoading: gamesLoading, refetch: refetchGames } = useQuery<Game[]>(
@@ -70,7 +71,7 @@ const App: React.FC = () => {
   );
 
   // Handle game launch
-  const handleGameLaunch = async (gameId: string) => {
+  const handleGameLaunch = useCallback(async (gameId: string) => {
     try {
       if (window.electronAPI) {
         const success = await window.electronAPI.game.launch(gameId);
@@ -83,10 +84,10 @@ const App: React.FC = () => {
     } catch (error) {
       toast.error(`Error launching game: ${error}`);
     }
-  };
+  }, []);
 
   // Handle admin access
-  const handleAdminAccess = (password: string) => {
+  const handleAdminAccess = useCallback((password: string) => {
     // In a real implementation, this would validate the password
     if (password === 'admin123') {
       setIsAdminMode(true);
@@ -95,10 +96,10 @@ const App: React.FC = () => {
     } else {
       toast.error('Invalid admin password');
     }
-  };
+  }, []);
 
   // Handle system sync
-  const handleSystemSync = async () => {
+  const handleSystemSync = useCallback(async () => {
     try {
       if (window.electronAPI) {
         const success = await window.electronAPI.admin.syncGames();
@@ -112,15 +113,15 @@ const App: React.FC = () => {
     } catch (error) {
       toast.error(`Sync error: ${error}`);
     }
-  };
+  }, [refetchGames]);
 
   // Handle system restart
-  const handleSystemRestart = () => {
+  const handleSystemRestart = useCallback(() => {
     if (confirm('Are you sure you want to restart the system?')) {
       // In a real implementation, this would trigger a system restart
       toast.success('System restart initiated');
     }
-  };
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -148,11 +149,16 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, []);
 
+  const handleBackToGames = useCallback(() => {
+    setCurrentView('games');
+    setIsAdminMode(false);
+  }, []);
+
   if (currentView === 'admin') {
     return (
       <AdminAccess
         onLogin={handleAdminAccess}
-        onBack={() => setCurrentView('games')}
+        onBack={handleBackToGames}
       />
     );
   }
@@ -162,7 +168,7 @@ const App: React.FC = () => {
       <SystemStatus
         systemInfo={systemInfo}
         isLoading={systemLoading}
-        onBack={() => setCurrentView('games')}
+        onBack={handleBackToGames}
         onSync={handleSystemSync}
         onRestart={handleSystemRestart}
       />

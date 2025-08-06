@@ -1,39 +1,38 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import * as crypto from 'crypto';
 
 import { Logger } from '../utils/Logger';
 
 interface GameManifest {
-  games: GameInfo[];
-  lastUpdated: string;
-  version: string;
+  readonly games: GameInfo[];
+  readonly lastUpdated: string;
+  readonly version: string;
 }
 
 interface GameInfo {
-  id: string;
-  name: string;
-  version: string;
-  size: number;
-  url: string;
-  checksum: string;
-  description: string;
-  thumbnail: string;
-  category: string;
-  tags: string[];
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly size: number;
+  readonly url: string;
+  readonly checksum: string;
+  readonly description: string;
+  readonly thumbnail: string;
+  readonly category: string;
+  readonly tags: readonly string[];
 }
 
 interface LocalGameInfo extends GameInfo {
-  localPath: string;
-  lastDownloaded: string;
-  isInstalled: boolean;
+  readonly localPath: string;
+  readonly lastDownloaded: string;
+  readonly isInstalled: boolean;
 }
 
 export class GameManager {
   private readonly gamesDir: string;
   private readonly manifestPath: string;
   private readonly logger: Logger;
-  private localGames: Map<string, LocalGameInfo> = new Map();
+  private readonly localGames: Map<string, LocalGameInfo> = new Map();
   private remoteManifest: GameManifest | null = null;
 
   constructor() {
@@ -45,14 +44,16 @@ export class GameManager {
   async initialize(): Promise<void> {
     try {
       // Ensure directories exist
-      await fs.ensureDir(this.gamesDir);
-      await fs.ensureDir(path.dirname(this.manifestPath));
+      await Promise.all([
+        fs.ensureDir(this.gamesDir),
+        fs.ensureDir(path.dirname(this.manifestPath))
+      ]);
       
-      // Load local manifest
-      await this.loadLocalManifest();
-      
-      // Load remote manifest
-      await this.loadRemoteManifest();
+      // Load manifests in parallel
+      await Promise.all([
+        this.loadLocalManifest(),
+        this.loadRemoteManifest()
+      ]);
       
       this.logger.info('GameManager initialized successfully');
     } catch (error) {
@@ -65,7 +66,13 @@ export class GameManager {
     try {
       if (await fs.pathExists(this.manifestPath)) {
         const manifest = await fs.readJson(this.manifestPath);
-        this.localGames = new Map(manifest.games.map((game: LocalGameInfo) => [game.id, game]));
+        const games = Array.isArray(manifest.games) ? manifest.games : [];
+        this.localGames.clear();
+        games.forEach((game: LocalGameInfo) => {
+          if (game.id && game.name) {
+            this.localGames.set(game.id, game);
+          }
+        });
         this.logger.info(`Loaded ${this.localGames.size} local games`);
       }
     } catch (error) {
@@ -163,10 +170,7 @@ export class GameManager {
 
   async getGamePath(gameId: string): Promise<string | null> {
     const game = this.localGames.get(gameId);
-    if (game && game.isInstalled) {
-      return game.localPath;
-    }
-    return null;
+    return game?.isInstalled ? game.localPath : null;
   }
 
   async syncGames(): Promise<boolean> {
@@ -411,12 +415,8 @@ export class GameManager {
   }
 
   async getTotalInstalledSize(): Promise<number> {
-    let totalSize = 0;
-    for (const game of this.localGames.values()) {
-      if (game.isInstalled) {
-        totalSize += game.size;
-      }
-    }
-    return totalSize;
+    return Array.from(this.localGames.values())
+      .filter(game => game.isInstalled)
+      .reduce((total, game) => total + game.size, 0);
   }
 } 

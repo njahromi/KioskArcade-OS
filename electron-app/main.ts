@@ -1,21 +1,27 @@
-import { app, BrowserWindow, BrowserView, ipcMain, globalShortcut, screen, session } from 'electron';
+import { app, BrowserWindow, BrowserView, ipcMain, globalShortcut, screen } from 'electron';
 import * as path from 'path';
-import * as fs from 'fs-extra';
 import { TokenManager } from './services/TokenManager';
 import { GameManager } from './services/GameManager';
 import { AdminManager } from './services/AdminManager';
 import { SecurityManager } from './services/SecurityManager';
 import { Logger } from './utils/Logger';
 
+interface KioskArcadeConfig {
+  readonly isDevelopment: boolean;
+  readonly preloadPath: string;
+  readonly rendererPath: string;
+}
+
 class KioskArcadeApp {
   private mainWindow: BrowserWindow | null = null;
   private gameView: BrowserView | null = null;
   private adminWindow: BrowserWindow | null = null;
-  private tokenManager: TokenManager;
-  private gameManager: GameManager;
-  private adminManager: AdminManager;
-  private securityManager: SecurityManager;
-  private logger: Logger;
+  private readonly tokenManager: TokenManager;
+  private readonly gameManager: GameManager;
+  private readonly adminManager: AdminManager;
+  private readonly securityManager: SecurityManager;
+  private readonly logger: Logger;
+  private readonly config: KioskArcadeConfig;
 
   constructor() {
     this.logger = new Logger();
@@ -23,6 +29,12 @@ class KioskArcadeApp {
     this.gameManager = new GameManager();
     this.adminManager = new AdminManager();
     this.securityManager = new SecurityManager();
+    
+    this.config = {
+      isDevelopment: process.env.NODE_ENV === 'development',
+      preloadPath: path.join(__dirname, 'preload.js'),
+      rendererPath: path.join(__dirname, 'renderer')
+    };
   }
 
   async initialize(): Promise<void> {
@@ -35,9 +47,11 @@ class KioskArcadeApp {
       }
 
       // Initialize services
-      await this.tokenManager.initialize();
-      await this.gameManager.initialize();
-      await this.securityManager.initialize();
+      await Promise.all([
+        this.tokenManager.initialize(),
+        this.gameManager.initialize(),
+        this.securityManager.initialize()
+      ]);
 
       // Setup app event handlers
       this.setupAppEventHandlers();
@@ -102,7 +116,7 @@ class KioskArcadeApp {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
-        preload: path.join(__dirname, 'preload.js'),
+        preload: this.config.preloadPath,
         webSecurity: true,
         allowRunningInsecureContent: false,
         experimentalFeatures: false
@@ -120,10 +134,10 @@ class KioskArcadeApp {
     });
 
     // Load the main interface
-    if (process.env.NODE_ENV === 'development') {
+    if (this.config.isDevelopment) {
       await this.mainWindow.loadURL('http://localhost:3000');
     } else {
-      await this.mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+      await this.mainWindow.loadFile(path.join(this.config.rendererPath, 'index.html'));
     }
 
     // Prevent window from being closed
@@ -151,7 +165,7 @@ class KioskArcadeApp {
 
   private setupIpcHandlers(): void {
     // Admin interface handlers
-    ipcMain.handle('admin:login', async (event, password: string) => {
+    ipcMain.handle('admin:login', async (_event, password: string) => {
       return await this.adminManager.authenticate(password);
     });
 
@@ -159,7 +173,7 @@ class KioskArcadeApp {
       return await this.adminManager.getConfiguration();
     });
 
-    ipcMain.handle('admin:update-config', async (event, config: any) => {
+    ipcMain.handle('admin:update-config', async (_event, config: any) => {
       return await this.adminManager.updateConfiguration(config);
     });
 
@@ -176,7 +190,7 @@ class KioskArcadeApp {
     });
 
     // Game management handlers
-    ipcMain.handle('game:launch', async (event, gameId: string) => {
+    ipcMain.handle('game:launch', async (_event, gameId: string) => {
       return await this.launchGame(gameId);
     });
 
@@ -184,7 +198,7 @@ class KioskArcadeApp {
       return await this.gameManager.getGameList();
     });
 
-    ipcMain.handle('game:update', async (event, gameId: string) => {
+    ipcMain.handle('game:update', async (_event, gameId: string) => {
       return await this.gameManager.updateGame(gameId);
     });
 
@@ -287,7 +301,7 @@ class KioskArcadeApp {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
-        preload: path.join(__dirname, 'preload.js')
+        preload: this.config.preloadPath
       },
       show: false,
       frame: true,
@@ -297,10 +311,10 @@ class KioskArcadeApp {
       closable: true
     });
 
-    if (process.env.NODE_ENV === 'development') {
+    if (this.config.isDevelopment) {
       await this.adminWindow.loadURL('http://localhost:3000/admin');
     } else {
-      await this.adminWindow.loadFile(path.join(__dirname, 'renderer', 'admin.html'));
+      await this.adminWindow.loadFile(path.join(this.config.rendererPath, 'admin.html'));
     }
 
     this.adminWindow.once('ready-to-show', () => {

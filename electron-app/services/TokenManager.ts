@@ -1,14 +1,15 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs-extra';
 import * as path from 'path';
+import * as os from 'os';
 import { Logger } from '../utils/Logger';
 
 interface TokenData {
-  token: string;
-  createdAt: Date;
-  expiresAt: Date;
-  arcadeId: string;
-  locationId: string;
+  readonly token: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly arcadeId: string;
+  readonly locationId: string;
 }
 
 export class TokenManager {
@@ -42,7 +43,6 @@ export class TokenManager {
 
   private generateArcadeId(): string {
     // Generate a unique arcade ID based on hardware characteristics
-    const os = require('os');
     const networkInterfaces = os.networkInterfaces();
     const interfaces = Object.values(networkInterfaces).flat() as any[];
     const macAddress = interfaces.find((iface: any) => !iface.internal && iface.mac !== '00:00:00:00:00:00')?.mac || 'unknown';

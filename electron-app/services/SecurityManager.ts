@@ -3,25 +3,25 @@ import * as path from 'path';
 import { Logger } from '../utils/Logger';
 
 interface SecurityStatus {
-  lockdownEnabled: boolean;
-  shortcutsBlocked: boolean;
-  adminAccessEnabled: boolean;
-  sessionActive: boolean;
-  lastSecurityCheck: Date;
-  securityLevel: 'low' | 'medium' | 'high' | 'critical';
+  readonly lockdownEnabled: boolean;
+  readonly shortcutsBlocked: boolean;
+  readonly adminAccessEnabled: boolean;
+  readonly sessionActive: boolean;
+  readonly lastSecurityCheck: Date;
+  readonly securityLevel: 'low' | 'medium' | 'high' | 'critical';
 }
 
 interface SecurityEvent {
-  timestamp: Date;
-  event: string;
-  details: string;
-  severity: 'info' | 'warning' | 'error' | 'critical';
+  readonly timestamp: Date;
+  readonly event: string;
+  readonly details: string;
+  readonly severity: 'info' | 'warning' | 'error' | 'critical';
 }
 
 export class SecurityManager {
   private readonly logger: Logger;
   private readonly securityLogPath: string;
-  private events: SecurityEvent[] = [];
+  private readonly events: SecurityEvent[] = [];
   private securityStatus: SecurityStatus;
   private sessionStartTime: Date | null = null;
 
@@ -58,13 +58,17 @@ export class SecurityManager {
         const logData = await fs.readFile(this.securityLogPath, 'utf8');
         const lines = logData.split('\n').filter(line => line.trim());
         
-        this.events = lines.map(line => {
+        this.events.length = 0;
+        lines.forEach(line => {
           try {
-            return JSON.parse(line);
+            const event = JSON.parse(line);
+            if (event && event.timestamp && event.event) {
+              this.events.push(event);
+            }
           } catch {
-            return null;
+            // Skip invalid JSON lines
           }
-        }).filter(event => event !== null);
+        });
         
         this.logger.info(`Loaded ${this.events.length} security events`);
       }

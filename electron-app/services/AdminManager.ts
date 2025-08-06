@@ -4,33 +4,33 @@ import * as bcrypt from 'bcryptjs';
 import { Logger } from '../utils/Logger';
 
 interface ArcadeConfig {
-  arcadeId: string;
-  locationId: string;
-  locationName: string;
-  adminPassword: string;
-  networkSettings: {
-    autoSync: boolean;
-    syncInterval: number; // minutes
-    updateCheckInterval: number; // minutes
+  readonly arcadeId: string;
+  readonly locationId: string;
+  readonly locationName: string;
+  readonly adminPassword: string;
+  readonly networkSettings: {
+    readonly autoSync: boolean;
+    readonly syncInterval: number; // minutes
+    readonly updateCheckInterval: number; // minutes
   };
-  displaySettings: {
-    brightness: number;
-    volume: number;
-    autoStart: boolean;
+  readonly displaySettings: {
+    readonly brightness: number;
+    readonly volume: number;
+    readonly autoStart: boolean;
   };
-  securitySettings: {
-    lockdownEnabled: boolean;
-    allowAdminAccess: boolean;
-    sessionTimeout: number; // minutes
+  readonly securitySettings: {
+    readonly lockdownEnabled: boolean;
+    readonly allowAdminAccess: boolean;
+    readonly sessionTimeout: number; // minutes
   };
 }
 
 interface NetworkTestResult {
-  success: boolean;
-  latency: number;
-  downloadSpeed: number;
-  uploadSpeed: number;
-  error?: string;
+  readonly success: boolean;
+  readonly latency: number;
+  readonly downloadSpeed: number;
+  readonly uploadSpeed: number;
+  readonly error?: string;
 }
 
 export class AdminManager {
@@ -126,17 +126,17 @@ export class AdminManager {
     }
   }
 
-  async getConfiguration(): Promise<ArcadeConfig | null> {
+  async getConfiguration(): Promise<Omit<ArcadeConfig, 'adminPassword'> | null> {
     // Return a copy without the password
     if (!this.config) {
       return null;
     }
 
     const { adminPassword, ...configWithoutPassword } = this.config;
-    return configWithoutPassword as ArcadeConfig;
+    return configWithoutPassword;
   }
 
-  async updateConfiguration(updates: Partial<ArcadeConfig>): Promise<boolean> {
+  async updateConfiguration(updates: Partial<Omit<ArcadeConfig, 'adminPassword'>>): Promise<boolean> {
     try {
       if (!this.config) {
         throw new Error('Configuration not loaded');
@@ -144,11 +144,6 @@ export class AdminManager {
 
       // Update configuration
       this.config = { ...this.config, ...updates };
-
-      // If password is being updated, hash it
-      if (updates.adminPassword && updates.adminPassword !== this.config.adminPassword) {
-        this.config.adminPassword = await bcrypt.hash(updates.adminPassword, 10);
-      }
 
       await this.saveConfig();
       this.logger.info('Configuration updated successfully');
