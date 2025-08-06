@@ -192,6 +192,19 @@ class KioskArcadeApp {
       this.logger.info('Main window ready');
     });
 
+    // Add debugging for window events
+    this.mainWindow.webContents.on('did-start-loading', () => {
+      this.logger.info('Window started loading');
+    });
+
+    this.mainWindow.webContents.on('did-finish-load', () => {
+      this.logger.info('Window finished loading');
+    });
+
+    this.mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+      this.logger.error('Window failed to load:', { errorCode, errorDescription, validatedURL });
+    });
+
     // Handle window focus
     this.mainWindow.on('blur', () => {
       this.mainWindow?.focus();
