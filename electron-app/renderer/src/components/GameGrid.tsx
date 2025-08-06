@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { GameController, Download, Play, Settings } from 'lucide-react';
+import { Download, Play, Settings, Gamepad2 } from 'lucide-react';
 
 interface Game {
   readonly id: string;
@@ -41,7 +41,7 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
   if (games.length === 0) {
     return (
       <div className="text-center py-12">
-        <GameController size={64} className="mx-auto mb-4 text-gray-400" />
+        <Gamepad2 size={64} className="mx-auto mb-4 text-gray-400" />
         <h3 className="text-xl font-semibold mb-2">No Games Available</h3>
         <p className="text-gray-400 mb-4">
           No games are currently installed. Please check back later or contact an administrator.
@@ -71,7 +71,7 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
                   className="w-full h-full object-cover rounded-lg"
                 />
               ) : (
-                <GameController size={48} className="text-white opacity-75" />
+                <Gamepad2 size={48} className="text-white opacity-75" />
               )}
             </div>
             
