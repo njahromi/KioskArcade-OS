@@ -8,6 +8,7 @@ import { AnalyticsManager } from './services/AnalyticsManager';
 import { MultiArcadeManager } from './services/MultiArcadeManager';
 import { Logger } from './utils/Logger';
 import { ConfigManager } from './config/AppConfig';
+import { Windows10ConfigManager } from './config/Windows10Config';
 
 interface KioskArcadeConfig {
   readonly isDevelopment: boolean;
@@ -31,7 +32,11 @@ class KioskArcadeApp {
 
   constructor() {
     this.logger = new Logger();
-    this.configManager = ConfigManager.getInstance();
+    
+    // Use Windows 10 specific config if running on Windows 10
+    const isWindows10 = process.platform === 'win32' && process.getSystemVersion().startsWith('10.');
+    this.configManager = isWindows10 ? Windows10ConfigManager.getInstance() : ConfigManager.getInstance();
+    
     this.tokenManager = new TokenManager();
     this.gameManager = new GameManager();
     this.adminManager = new AdminManager();
