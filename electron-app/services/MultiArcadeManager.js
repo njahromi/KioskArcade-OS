@@ -149,7 +149,7 @@ class MultiArcadeManager {
         setInterval(async () => {
             await this.updateUnitStatuses();
             await this.performLoadBalancing();
-        }, this.clusterConfig?.syncInterval * 60 * 1000 || 300000); // Default 5 minutes
+        }, (this.clusterConfig?.syncInterval || 5) * 60 * 1000); // Default 5 minutes
     }
     async updateUnitStatuses() {
         if (!this.clusterConfig)
