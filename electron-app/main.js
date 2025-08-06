@@ -156,7 +156,23 @@ class KioskArcadeApp {
         });
         // Load the main interface
         if (this.config.isDevelopment) {
-            await this.mainWindow.loadURL('http://localhost:3000');
+            try {
+                this.logger.info('Loading development URL: http://localhost:3000');
+                await this.mainWindow.loadURL('http://localhost:3000');
+                this.logger.info('Development URL loaded successfully');
+            }
+            catch (error) {
+                this.logger.error('Failed to load development URL:', error);
+                // Fallback to loading the built files
+                try {
+                    this.logger.info('Attempting to load built files as fallback');
+                    await this.mainWindow.loadFile(path.join(this.config.rendererPath, 'index.html'));
+                    this.logger.info('Built files loaded successfully');
+                }
+                catch (fallbackError) {
+                    this.logger.error('Failed to load built files:', fallbackError);
+                }
+            }
         }
         else {
             await this.mainWindow.loadFile(path.join(this.config.rendererPath, 'index.html'));
@@ -174,6 +190,16 @@ class KioskArcadeApp {
         this.mainWindow.once('ready-to-show', () => {
             this.mainWindow?.show();
             this.logger.info('Main window ready');
+        });
+        // Add debugging for window events
+        this.mainWindow.webContents.on('did-start-loading', () => {
+            this.logger.info('Window started loading');
+        });
+        this.mainWindow.webContents.on('did-finish-load', () => {
+            this.logger.info('Window finished loading');
+        });
+        this.mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+            this.logger.error('Window failed to load:', { errorCode, errorDescription, validatedURL });
         });
         // Handle window focus
         this.mainWindow.on('blur', () => {
