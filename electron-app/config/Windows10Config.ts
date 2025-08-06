@@ -83,6 +83,43 @@ export class Windows10ConfigManager extends ConfigManager {
     return Windows10ConfigManager.instance;
   }
   
+  // Override methods to ensure compatibility
+  getConfig(): AppConfig {
+    return super.getConfig();
+  }
+  
+  updateConfig(updates: Partial<AppConfig>): void {
+    super.updateConfig(updates);
+  }
+  
+  isFeatureEnabled(feature: keyof AppConfig): boolean {
+    return super.isFeatureEnabled(feature);
+  }
+  
+  getArcadeType(): 'single' | 'multi' | 'cluster' {
+    return super.getArcadeType();
+  }
+  
+  isMultiArcadeEnabled(): boolean {
+    return super.isMultiArcadeEnabled();
+  }
+  
+  isCloudSyncEnabled(): boolean {
+    return super.isCloudSyncEnabled();
+  }
+  
+  isAnalyticsEnabled(): boolean {
+    return super.isAnalyticsEnabled();
+  }
+  
+  isMobileAdminEnabled(): boolean {
+    return super.isMobileAdminEnabled();
+  }
+  
+  isMultiplayerEnabled(): boolean {
+    return super.isMultiplayerEnabled();
+  }
+  
   // Windows 10 specific methods
   isKioskModeEnabled(): boolean {
     return false; // Disabled for Windows 10 testing
