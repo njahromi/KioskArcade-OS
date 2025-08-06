@@ -7,13 +7,13 @@ interface ArcadeConfig {
   readonly arcadeId: string;
   readonly locationId: string;
   readonly locationName: string;
-  readonly adminPassword: string;
+  adminPassword: string; // Mutable for password updates
   readonly networkSettings: {
     readonly autoSync: boolean;
     readonly syncInterval: number; // minutes
     readonly updateCheckInterval: number; // minutes
   };
-  readonly displaySettings: {
+  displaySettings: { // Mutable for display updates
     readonly brightness: number;
     readonly volume: number;
     readonly autoStart: boolean;

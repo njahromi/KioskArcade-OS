@@ -3,12 +3,12 @@ import * as path from 'path';
 import { Logger } from '../utils/Logger';
 
 interface SecurityStatus {
-  readonly lockdownEnabled: boolean;
-  readonly shortcutsBlocked: boolean;
-  readonly adminAccessEnabled: boolean;
-  readonly sessionActive: boolean;
-  readonly lastSecurityCheck: Date;
-  readonly securityLevel: 'low' | 'medium' | 'high' | 'critical';
+  lockdownEnabled: boolean; // Mutable for status updates
+  shortcutsBlocked: boolean; // Mutable for status updates
+  adminAccessEnabled: boolean; // Mutable for status updates
+  sessionActive: boolean; // Mutable for session management
+  lastSecurityCheck: Date; // Mutable for timestamp updates
+  securityLevel: 'low' | 'medium' | 'high' | 'critical'; // Mutable for level changes
 }
 
 interface SecurityEvent {

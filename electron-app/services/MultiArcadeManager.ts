@@ -20,7 +20,7 @@ interface ArcadeUnit {
 interface ClusterConfig {
   readonly clusterId: string;
   readonly name: string;
-  readonly units: ArcadeUnit[];
+  units: ArcadeUnit[]; // Mutable for unit management
   readonly loadBalancing: 'round-robin' | 'least-loaded' | 'geographic';
   readonly autoFailover: boolean;
   readonly syncInterval: number; // minutes
@@ -31,7 +31,7 @@ interface GameDistribution {
   readonly units: string[];
   readonly version: string;
   readonly lastUpdated: Date;
-  readonly status: 'syncing' | 'synced' | 'error';
+  status: 'syncing' | 'synced' | 'error'; // Mutable for status updates
 }
 
 interface LoadBalancingResult {

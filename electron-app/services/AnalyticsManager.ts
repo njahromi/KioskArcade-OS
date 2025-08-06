@@ -25,10 +25,10 @@ interface PerformanceMetrics {
 interface UserBehavior {
   readonly sessionId: string;
   readonly startTime: Date;
-  readonly endTime?: Date;
-  readonly gamesPlayed: string[];
-  readonly totalPlayTime: number;
-  readonly interactions: number;
+  endTime?: Date; // Mutable for session updates
+  gamesPlayed: string[]; // Mutable for game tracking
+  totalPlayTime: number; // Mutable for play time tracking
+  interactions: number; // Mutable for interaction counting
   readonly preferences: Record<string, any>;
 }
 
