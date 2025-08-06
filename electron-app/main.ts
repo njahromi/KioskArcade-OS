@@ -27,15 +27,13 @@ class KioskArcadeApp {
   private readonly analyticsManager: AnalyticsManager;
   private readonly multiArcadeManager: MultiArcadeManager;
   private readonly logger: Logger;
-  private readonly configManager: ConfigManager | Windows10ConfigManager;
+  private readonly configManager: ConfigManager;
   private readonly config: KioskArcadeConfig;
 
   constructor() {
     this.logger = new Logger();
     
-    // Use Windows 10 specific config if running on Windows 10
-    const isWindows10 = process.platform === 'win32' && process.getSystemVersion().startsWith('10.');
-    this.configManager = isWindows10 ? Windows10ConfigManager.getInstance() : ConfigManager.getInstance();
+    this.configManager = ConfigManager.getInstance();
     
     this.tokenManager = new TokenManager();
     this.gameManager = new GameManager();
