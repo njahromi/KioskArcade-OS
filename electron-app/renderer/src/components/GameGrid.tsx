@@ -1,32 +1,32 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { GameController, Download, Play, Settings } from 'lucide-react';
 
 interface Game {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  thumbnail: string;
-  isInstalled: boolean;
-  version?: string;
-  size?: number;
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly thumbnail: string;
+  readonly isInstalled: boolean;
+  readonly version?: string;
+  readonly size?: number;
 }
 
 interface GameGridProps {
-  games: Game[];
-  onGameLaunch: (gameId: string) => void;
+  readonly games: readonly Game[];
+  readonly onGameLaunch: (gameId: string) => void;
 }
 
 const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
-  const formatFileSize = (bytes: number): string => {
+  const formatFileSize = useMemo(() => (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
+  }, []);
 
-  const getCategoryColor = (category: string): string => {
+  const getCategoryColor = useMemo(() => (category: string): string => {
     const colors: Record<string, string> = {
       'Puzzle': 'bg-blue-500',
       'Arcade': 'bg-green-500',
@@ -36,7 +36,7 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
       'Racing': 'bg-yellow-500',
     };
     return colors[category] || 'bg-gray-500';
-  };
+  }, []);
 
   if (games.length === 0) {
     return (
