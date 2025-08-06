@@ -1,4 +1,4 @@
-import { AppConfig } from './AppConfig';
+import { AppConfig, ConfigManager } from './AppConfig';
 
 export const windows10Config: Partial<AppConfig> = {
   app: {
