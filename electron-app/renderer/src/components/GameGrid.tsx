@@ -3,7 +3,9 @@ import { Download, Play, Settings, Gamepad2 } from 'lucide-react';
 
 interface Game {
   readonly id: string;
-  readonly name: string;
+  /** Backend may send `name` or legacy `title`. */
+  readonly name?: string;
+  readonly title?: string;
   readonly description: string;
   readonly category: string;
   readonly thumbnail: string;
@@ -15,9 +17,13 @@ interface Game {
 interface GameGridProps {
   readonly games: readonly Game[];
   readonly onGameLaunch: (gameId: string) => void;
+  /** When true, installed games cannot be launched (e.g. venue closed). */
+  readonly launchDisabled?: boolean;
 }
 
-const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
+const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch, launchDisabled = false }) => {
+  const displayName = (game: Game): string => game.name ?? game.title ?? game.id;
+
   const formatFileSize = useMemo(() => (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -55,11 +61,20 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      {launchDisabled && (
+        <div className="col-span-full rounded-lg border border-amber-800/60 bg-amber-950/30 text-amber-100 px-4 py-3 text-sm text-center">
+          Games cannot be launched while the venue is closed. Staff may sign in to override hours.
+        </div>
+      )}
       {games.map((game) => (
         <div
           key={game.id}
-          className="game-card bg-white bg-opacity-10 backdrop-blur-sm rounded-xl p-6 border border-white border-opacity-20 hover:bg-opacity-20 cursor-pointer"
-          onClick={() => game.isInstalled && onGameLaunch(game.id)}
+          className={`game-card bg-white bg-opacity-10 backdrop-blur-sm rounded-xl p-6 border border-white border-opacity-20 ${
+            launchDisabled || !game.isInstalled
+              ? 'opacity-60 cursor-not-allowed'
+              : 'hover:bg-opacity-20 cursor-pointer'
+          }`}
+          onClick={() => game.isInstalled && !launchDisabled && onGameLaunch(game.id)}
         >
           {/* Game Thumbnail */}
           <div className="relative mb-4">
@@ -67,7 +82,7 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
               {game.thumbnail ? (
                 <img
                   src={game.thumbnail}
-                  alt={game.name}
+                  alt={displayName(game)}
                   className="w-full h-full object-cover rounded-lg"
                 />
               ) : (
@@ -90,7 +105,7 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
           {/* Game Info */}
           <div className="space-y-2">
             <h3 className="text-lg font-semibold text-white truncate">
-              {game.name}
+              {displayName(game)}
             </h3>
             
             <p className="text-sm text-gray-300 line-clamp-2">
@@ -122,9 +137,10 @@ const GameGrid: React.FC<GameGridProps> = ({ games, onGameLaunch }) => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onGameLaunch(game.id);
+                    if (!launchDisabled) onGameLaunch(game.id);
                   }}
-                  className="flex-1 btn btn-primary flex items-center justify-center space-x-2"
+                  disabled={launchDisabled}
+                  className="flex-1 btn btn-primary flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Play size={16} />
                   <span>Play</span>

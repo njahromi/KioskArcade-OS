@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Lock, Eye, EyeOff } from 'lucide-react';
 
 interface AdminAccessProps {
-  onAccess: (password: string) => void;
+  onAccess: (password: string) => Promise<void>;
 }
 
 const AdminAccess: React.FC<AdminAccessProps> = ({ onAccess }) => {
@@ -16,7 +16,7 @@ const AdminAccess: React.FC<AdminAccessProps> = ({ onAccess }) => {
 
     setIsLoading(true);
     try {
-      onAccess(password);
+      await onAccess(password);
     } catch (error) {
       console.error('Admin access error:', error);
     } finally {

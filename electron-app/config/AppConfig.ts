@@ -63,6 +63,29 @@ export interface AppConfig {
     readonly remoteControl: boolean;
     readonly qrCodeAccess: boolean;
   };
+
+  /** Weekly hours use the kiosk PC local time. Index 0 = Sunday … 6 = Saturday. */
+  readonly venue: {
+    readonly enabled: boolean;
+    readonly weeklyHours: ReadonlyArray<{ readonly start: string; readonly end: string } | null>;
+    readonly closedTitle: string;
+    readonly closedSubtitle: string;
+  };
+
+  readonly healthCheck: {
+    readonly enabled: boolean;
+    readonly minFreeDiskMb: number;
+    /** If null, uses analytics endpoint or httpbin as fallback. */
+    readonly networkCheckUrl: string | null;
+    readonly pingTimeoutMs: number;
+    readonly blockPublicUntilPass: boolean;
+  };
+
+  readonly accessibility: {
+    readonly highContrast: boolean;
+    readonly largeTouchTargets: boolean;
+    readonly reduceMotion: boolean;
+  };
 }
 
 export const defaultConfig: AppConfig = {
@@ -129,6 +152,35 @@ export const defaultConfig: AppConfig = {
     pushNotifications: true,
     remoteControl: true,
     qrCodeAccess: true
+  },
+
+  venue: {
+    enabled: false,
+    weeklyHours: [
+      { start: '10:00', end: '22:00' },
+      { start: '10:00', end: '22:00' },
+      { start: '10:00', end: '22:00' },
+      { start: '10:00', end: '22:00' },
+      { start: '10:00', end: '22:00' },
+      { start: '10:00', end: '23:00' },
+      { start: '10:00', end: '23:00' }
+    ],
+    closedTitle: 'Sorry, we are closed',
+    closedSubtitle: 'Please visit during posted hours. Thank you!'
+  },
+
+  healthCheck: {
+    enabled: false,
+    minFreeDiskMb: 256,
+    networkCheckUrl: null,
+    pingTimeoutMs: 8000,
+    blockPublicUntilPass: false
+  },
+
+  accessibility: {
+    highContrast: false,
+    largeTouchTargets: false,
+    reduceMotion: false
   }
 };
 

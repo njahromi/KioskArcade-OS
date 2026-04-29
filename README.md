@@ -42,6 +42,13 @@ A secure, scalable Electron-based WebGL arcade system for Windows 11 kiosk mode 
 - **Matchmaking**: Intelligent player matching
 - **Network Optimization**: Optimized for low-latency multiplayer
 
+### Smart Venue Operations
+- **Venue Hours Gate**: Define weekly open/closed hours and automatically block game launches while closed
+- **Closed Venue Screen**: Display a branded closed message for guests with a staff path to admin access
+- **Admin Venue Override**: Authorized staff can force public open mode for special events
+- **Boot Health Gate**: Optional startup checks for disk space, network reachability, games folder access, and WebGL
+- **Inclusive Play Mode**: High contrast, larger touch targets, and reduced motion options
+
 ## 🧹 Code Improvements
 
 ### Streamlined Architecture
@@ -72,17 +79,24 @@ KioskArcade-OS/
 │   ├── services/
 │   │   ├── AdminManager.ts       # Admin interface management
 │   │   ├── AnalyticsManager.ts   # Analytics and monitoring
+│   │   ├── BootHealthManager.ts  # Boot-time system checks
 │   │   ├── GameManager.ts        # Game management
 │   │   ├── MultiArcadeManager.ts # Multi-unit management
 │   │   ├── SecurityManager.ts    # Security and lockdown
-│   │   └── TokenManager.ts       # Token management
+│   │   ├── TokenManager.ts       # Token management
+│   │   └── VenueScheduleManager.ts # Venue open/closed schedule logic
 │   ├── utils/
 │   │   └── Logger.ts             # Enhanced logging
 │   ├── renderer/
 │   │   └── src/
 │   │       ├── components/
-│   │       │   └── GameGrid.tsx  # Optimized game grid
-│   │       └── App.tsx           # Main application
+│   │       │   ├── BootHealthGate.tsx      # Startup health diagnostics UI
+│   │       │   ├── ClosedVenueScreen.tsx   # Public closed-hours screen
+│   │       │   ├── GameGrid.tsx            # Optimized game grid
+│   │       │   └── VenueOverrideControls.tsx # Admin venue controls
+│   │       ├── utils/
+│   │       │   └── webglSelfTest.ts # WebGL startup probe
+│   │       └── App.tsx            # Main application
 │   ├── main.ts                   # Main process
 │   └── preload.ts                # Preload script
 ├── data/                         # Application data
@@ -147,6 +161,50 @@ npm run dev
     "flushInterval": 60,
     "trackUserBehavior": true,
     "performanceMonitoring": true
+  }
+}
+```
+
+### Venue Schedule Configuration
+```json
+{
+  "venue": {
+    "enabled": true,
+    "weeklyHours": [
+      { "start": "10:00", "end": "22:00" },
+      { "start": "10:00", "end": "22:00" },
+      { "start": "10:00", "end": "22:00" },
+      { "start": "10:00", "end": "22:00" },
+      { "start": "10:00", "end": "22:00" },
+      { "start": "10:00", "end": "23:00" },
+      { "start": "10:00", "end": "23:00" }
+    ],
+    "closedTitle": "Sorry, we are closed",
+    "closedSubtitle": "Please visit during posted hours. Thank you!"
+  }
+}
+```
+
+### Boot Health Check Configuration
+```json
+{
+  "healthCheck": {
+    "enabled": true,
+    "minFreeDiskMb": 512,
+    "networkCheckUrl": "https://analytics.kioskarcade.com",
+    "pingTimeoutMs": 8000,
+    "blockPublicUntilPass": true
+  }
+}
+```
+
+### Inclusive Play Accessibility Configuration
+```json
+{
+  "accessibility": {
+    "highContrast": true,
+    "largeTouchTargets": true,
+    "reduceMotion": true
   }
 }
 ```
@@ -257,6 +315,9 @@ MIT License - see LICENSE file for details
 - ✨ Added mobile admin app support
 - ✨ Added cloud-based game distribution
 - ✨ Added real-time multiplayer support
+- ✨ Added venue schedule gating with admin override controls
+- ✨ Added optional boot health gate (disk/network/games/WebGL)
+- ✨ Added inclusive play accessibility options
 - 🧹 Streamlined codebase and removed duplicates
 - 🔧 Improved TypeScript type safety
 - ⚡ Performance optimizations

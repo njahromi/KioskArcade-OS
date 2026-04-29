@@ -6,6 +6,8 @@ import { AdminManager } from './services/AdminManager';
 import { SecurityManager } from './services/SecurityManager';
 import { AnalyticsManager } from './services/AnalyticsManager';
 import { MultiArcadeManager } from './services/MultiArcadeManager';
+import { VenueScheduleManager } from './services/VenueScheduleManager';
+import { BootHealthManager } from './services/BootHealthManager';
 import { Logger } from './utils/Logger';
 import { ConfigManager } from './config/AppConfig';
 
@@ -25,6 +27,8 @@ class KioskArcadeApp {
   private readonly securityManager: SecurityManager;
   private readonly analyticsManager: AnalyticsManager;
   private readonly multiArcadeManager: MultiArcadeManager;
+  private readonly venueScheduleManager: VenueScheduleManager;
+  private readonly bootHealthManager: BootHealthManager;
   private readonly logger: Logger;
   private readonly configManager: ConfigManager;
   private readonly config: KioskArcadeConfig;
@@ -40,7 +44,9 @@ class KioskArcadeApp {
     this.securityManager = new SecurityManager();
     this.analyticsManager = new AnalyticsManager();
     this.multiArcadeManager = new MultiArcadeManager();
-    
+    this.venueScheduleManager = new VenueScheduleManager(this.configManager, this.adminManager);
+    this.bootHealthManager = new BootHealthManager(this.configManager);
+
     this.config = {
       isDevelopment: process.env.NODE_ENV === 'development',
       preloadPath: path.join(__dirname, 'preload.js'),
@@ -239,6 +245,10 @@ class KioskArcadeApp {
 
     // Game management handlers
     ipcMain.handle('game:launch', async (_event, gameId: string) => {
+      if (!this.venueScheduleManager.isVenueOpenForPublic()) {
+        this.logger.warn(`Game launch blocked (venue closed): ${gameId}`);
+        return false;
+      }
       const result = await this.launchGame(gameId);
       if (result) {
         await this.analyticsManager.trackEvent('game_launched', 'game_activity', { gameId });
@@ -318,6 +328,21 @@ class KioskArcadeApp {
 
     ipcMain.handle('config:is-feature-enabled', async (_event, feature: string) => {
       return this.configManager.isFeatureEnabled(feature as keyof import('./config/AppConfig').AppConfig);
+    });
+
+    ipcMain.handle('venue:get-status', async () => {
+      return this.venueScheduleManager.getPublicStatus();
+    });
+
+    ipcMain.handle(
+      'venue:set-override',
+      async (_event, payload: { readonly password: string; readonly mode: 'none' | 'force_open' }) => {
+        return await this.venueScheduleManager.setOverride(payload.mode, payload.password);
+      }
+    );
+
+    ipcMain.handle('health:run-checks', async () => {
+      return await this.bootHealthManager.runChecks();
     });
   }
 

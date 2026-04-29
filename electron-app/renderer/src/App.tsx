@@ -1,19 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import GameGrid from './components/GameGrid';
 import SystemStatus from './components/SystemStatus';
 import AdminAccess from './components/AdminAccess';
-
-interface Game {
-  readonly id: string;
-  readonly title: string;
-  readonly description: string;
-  readonly category: string;
-  readonly size: number;
-  readonly version: string;
-  readonly isInstalled: boolean;
-  readonly isUpToDate: boolean;
-}
+import BootHealthGate from './components/BootHealthGate';
+import ClosedVenueScreen from './components/ClosedVenueScreen';
+import VenueOverrideControls from './components/VenueOverrideControls';
 
 interface SystemInfo {
   readonly arcadeId: string;
@@ -27,22 +19,35 @@ interface SystemInfo {
 type ViewType = 'games' | 'system' | 'admin';
 
 const App: React.FC = () => {
+  const queryClient = useQueryClient();
   const [currentView, setCurrentView] = useState<ViewType>('games');
   const [isLoading, setIsLoading] = useState(false);
+  const [adminSessionPassword, setAdminSessionPassword] = useState<string | null>(null);
+  const [healthGateDone, setHealthGateDone] = useState(false);
 
-  // Fetch games list
+  const { data: appConfig, isLoading: configLoading } = useQuery({
+    queryKey: ['appConfig'],
+    queryFn: async () => window.electronAPI.config.get(),
+    staleTime: 60_000
+  });
+
+  const { data: venueStatus } = useQuery({
+    queryKey: ['venueStatus'],
+    queryFn: async () => window.electronAPI.venue.getStatus(),
+    refetchInterval: 30_000
+  });
+
   const { data: games = [], isLoading: gamesLoading } = useQuery({
     queryKey: ['games'],
     queryFn: async () => {
-      const games = await window.electronAPI.game.list();
-      return games || [];
+      const list = await window.electronAPI.game.list();
+      return list || [];
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30_000
   });
 
-  // Fetch system info
   const { data: systemInfo } = useQuery({
-    queryKey: ['systemInfo'],
+    queryKey: ['systemInfo', games.length],
     queryFn: async () => {
       const token = await window.electronAPI.token.get();
       return {
@@ -51,11 +56,34 @@ const App: React.FC = () => {
         locationName: token?.locationName || 'Unknown Location',
         uptime: Date.now() - (token?.createdAt || Date.now()),
         gamesInstalled: games.length,
-        lastSync: new Date().toISOString(),
-      };
+        lastSync: new Date().toISOString()
+      } as SystemInfo;
     },
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 10_000
   });
+
+  useEffect(() => {
+    if (!appConfig) return;
+    const need =
+      appConfig.healthCheck?.enabled === true && appConfig.healthCheck?.blockPublicUntilPass === true;
+    if (!need) {
+      setHealthGateDone(true);
+    }
+  }, [appConfig]);
+
+  useEffect(() => {
+    const a = appConfig?.accessibility;
+    if (!a) return;
+    const root = document.documentElement;
+    root.dataset.highContrast = String(!!a.highContrast);
+    root.dataset.largeTouchTargets = String(!!a.largeTouchTargets);
+    root.dataset.reduceMotion = String(!!a.reduceMotion);
+    return () => {
+      delete root.dataset.highContrast;
+      delete root.dataset.largeTouchTargets;
+      delete root.dataset.reduceMotion;
+    };
+  }, [appConfig?.accessibility]);
 
   const handleGameLaunch = useCallback(async (gameId: string) => {
     setIsLoading(true);
@@ -74,18 +102,22 @@ const App: React.FC = () => {
   }, []);
 
   const handleAdminAccess = useCallback(async (password: string) => {
-    try {
-      const success = await window.electronAPI.admin.login(password);
-      if (success) {
-        setCurrentView('admin');
-      } else {
-        alert('Invalid admin password');
-      }
-    } catch (error) {
-      console.error('Admin access error:', error);
-      alert('Failed to access admin interface');
+    const success = await window.electronAPI.admin.login(password);
+    if (success) {
+      setAdminSessionPassword(password);
+      setCurrentView('admin');
+    } else {
+      alert('Invalid admin password');
     }
   }, []);
+
+  const handleAdminLogout = useCallback(() => {
+    setAdminSessionPassword(null);
+  }, []);
+
+  const handleVenueChanged = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['venueStatus'] });
+  }, [queryClient]);
 
   const handleSystemSync = useCallback(async () => {
     try {
@@ -100,7 +132,6 @@ const App: React.FC = () => {
   const handleSystemRestart = useCallback(async () => {
     if (confirm('Are you sure you want to restart the system?')) {
       try {
-        // This would typically call a system restart function
         console.log('System restart requested');
       } catch (error) {
         console.error('Restart error:', error);
@@ -110,9 +141,13 @@ const App: React.FC = () => {
 
   const handleBackToGames = useCallback(() => {
     setCurrentView('games');
+    setAdminSessionPassword(null);
   }, []);
 
-  // Handle admin access shortcut (Ctrl+Alt+A)
+  const onHealthPassed = useCallback(() => {
+    setHealthGateDone(true);
+  }, []);
+
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
       if (event.ctrlKey && event.altKey && event.key === 'A') {
@@ -124,11 +159,32 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, []);
 
+  const needsHealthGate =
+    appConfig?.healthCheck?.enabled === true && appConfig?.healthCheck?.blockPublicUntilPass === true;
+
+  const venueClosed =
+    venueStatus?.venueEnabled === true && venueStatus?.isOpen === false;
+
+  if (configLoading || !appConfig) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4" />
+          <p className="text-slate-400">Loading configuration…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (needsHealthGate && !healthGateDone) {
+    return <BootHealthGate onPassed={onHealthPassed} />;
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-white mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-white mx-auto mb-4" />
           <h2 className="text-2xl font-bold">Loading...</h2>
         </div>
       </div>
@@ -137,24 +193,26 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
       <header className="bg-gray-800 border-b border-gray-700 p-4">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-wrap gap-4">
           <h1 className="text-3xl font-bold">KioskArcade OS</h1>
           <div className="flex space-x-4">
             <button
+              type="button"
               onClick={() => setCurrentView('games')}
               className={`px-4 py-2 rounded ${currentView === 'games' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}
             >
               Games
             </button>
             <button
+              type="button"
               onClick={() => setCurrentView('system')}
               className={`px-4 py-2 rounded ${currentView === 'system' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}
             >
               System
             </button>
             <button
+              type="button"
               onClick={() => setCurrentView('admin')}
               className={`px-4 py-2 rounded ${currentView === 'admin' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}
             >
@@ -164,18 +222,26 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="p-6">
-        {currentView === 'games' && (
+        {currentView === 'games' && venueClosed && venueStatus && (
+          <ClosedVenueScreen
+            title={venueStatus.closedTitle}
+            subtitle={venueStatus.closedSubtitle}
+            locationName={appConfig.arcade.locationName}
+            onStaffLogin={() => setCurrentView('admin')}
+          />
+        )}
+
+        {currentView === 'games' && !venueClosed && (
           <div>
             <h2 className="text-2xl font-bold mb-6">Available Games</h2>
             {gamesLoading ? (
               <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4" />
                 <p>Loading games...</p>
               </div>
             ) : (
-              <GameGrid games={games} onGameLaunch={handleGameLaunch} />
+              <GameGrid games={games} onGameLaunch={handleGameLaunch} launchDisabled={false} />
             )}
           </div>
         )}
@@ -186,12 +252,14 @@ const App: React.FC = () => {
             <SystemStatus systemInfo={systemInfo} />
             <div className="mt-6 flex space-x-4">
               <button
+                type="button"
                 onClick={handleSystemSync}
                 className="px-6 py-3 bg-green-600 hover:bg-green-500 rounded-lg font-semibold"
               >
                 Sync System
               </button>
               <button
+                type="button"
                 onClick={handleSystemRestart}
                 className="px-6 py-3 bg-red-600 hover:bg-red-500 rounded-lg font-semibold"
               >
@@ -201,11 +269,12 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {currentView === 'admin' && (
+        {currentView === 'admin' && !adminSessionPassword && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold">Admin Access</h2>
               <button
+                type="button"
                 onClick={handleBackToGames}
                 className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded"
               >
@@ -215,9 +284,31 @@ const App: React.FC = () => {
             <AdminAccess onAccess={handleAdminAccess} />
           </div>
         )}
+
+        {currentView === 'admin' && adminSessionPassword && venueStatus && (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Admin</h2>
+              <button
+                type="button"
+                onClick={handleBackToGames}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded"
+              >
+                Back to Games
+              </button>
+            </div>
+            <VenueOverrideControls
+              sessionPassword={adminSessionPassword}
+              venueEnabled={appConfig.venue.enabled}
+              venueOverride={venueStatus.override}
+              onLogout={handleAdminLogout}
+              onVenueChanged={handleVenueChanged}
+            />
+          </div>
+        )}
       </main>
     </div>
   );
 };
 
-export default App; 
+export default App;

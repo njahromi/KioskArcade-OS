@@ -130,4 +130,35 @@
 
 .status-info {
   @apply bg-blue-500;
+}
+
+/* Inclusive play / accessibility (set via `document.documentElement.dataset` from App config) */
+html[data-high-contrast='true'] {
+  filter: contrast(1.15) saturate(1.1);
+}
+
+html[data-high-contrast='true'] .game-card {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+html[data-large-touch-targets='true'] .btn,
+html[data-large-touch-targets='true'] .game-card {
+  min-height: 3rem;
+}
+
+html[data-large-touch-targets='true'] header button {
+  min-height: 2.75rem;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+html[data-reduce-motion='true'] .game-card,
+html[data-reduce-motion='true'] .animate-spin,
+html[data-reduce-motion='true'] .animate-pulse {
+  transition: none !important;
+  animation: none !important;
+}
+
+html[data-reduce-motion='true'] .game-card:hover {
+  transform: none;
 } 

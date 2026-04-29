@@ -41,6 +41,8 @@ const AdminManager_1 = require("./services/AdminManager");
 const SecurityManager_1 = require("./services/SecurityManager");
 const AnalyticsManager_1 = require("./services/AnalyticsManager");
 const MultiArcadeManager_1 = require("./services/MultiArcadeManager");
+const VenueScheduleManager_1 = require("./services/VenueScheduleManager");
+const BootHealthManager_1 = require("./services/BootHealthManager");
 const Logger_1 = require("./utils/Logger");
 const AppConfig_1 = require("./config/AppConfig");
 class KioskArcadeApp {
@@ -56,6 +58,8 @@ class KioskArcadeApp {
         this.securityManager = new SecurityManager_1.SecurityManager();
         this.analyticsManager = new AnalyticsManager_1.AnalyticsManager();
         this.multiArcadeManager = new MultiArcadeManager_1.MultiArcadeManager();
+        this.venueScheduleManager = new VenueScheduleManager_1.VenueScheduleManager(this.configManager, this.adminManager);
+        this.bootHealthManager = new BootHealthManager_1.BootHealthManager(this.configManager);
         this.config = {
             isDevelopment: process.env.NODE_ENV === 'development',
             preloadPath: path.join(__dirname, 'preload.js'),
@@ -228,6 +232,10 @@ class KioskArcadeApp {
         });
         // Game management handlers
         electron_1.ipcMain.handle('game:launch', async (_event, gameId) => {
+            if (!this.venueScheduleManager.isVenueOpenForPublic()) {
+                this.logger.warn(`Game launch blocked (venue closed): ${gameId}`);
+                return false;
+            }
             const result = await this.launchGame(gameId);
             if (result) {
                 await this.analyticsManager.trackEvent('game_launched', 'game_activity', { gameId });
@@ -290,6 +298,15 @@ class KioskArcadeApp {
         });
         electron_1.ipcMain.handle('config:is-feature-enabled', async (_event, feature) => {
             return this.configManager.isFeatureEnabled(feature);
+        });
+        electron_1.ipcMain.handle('venue:get-status', async () => {
+            return this.venueScheduleManager.getPublicStatus();
+        });
+        electron_1.ipcMain.handle('venue:set-override', async (_event, payload) => {
+            return await this.venueScheduleManager.setOverride(payload.mode, payload.password);
+        });
+        electron_1.ipcMain.handle('health:run-checks', async () => {
+            return await this.bootHealthManager.runChecks();
         });
     }
     setupGlobalShortcuts() {

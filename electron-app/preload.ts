@@ -55,6 +55,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isFeatureEnabled: (feature: string) => ipcRenderer.invoke('config:is-feature-enabled', feature)
   },
 
+  venue: {
+    getStatus: () => ipcRenderer.invoke('venue:get-status'),
+    setOverride: (password: string, mode: 'none' | 'force_open') =>
+      ipcRenderer.invoke('venue:set-override', { password, mode })
+  },
+
+  health: {
+    runChecks: () => ipcRenderer.invoke('health:run-checks')
+  },
+
   // System information
   system: {
     getVersion: () => process.versions.electron,
@@ -104,6 +114,28 @@ declare global {
         get: () => Promise<any>;
         update: (updates: any) => Promise<boolean>;
         isFeatureEnabled: (feature: string) => Promise<boolean>;
+      };
+      venue: {
+        getStatus: () => Promise<{
+          venueEnabled: boolean;
+          isOpen: boolean;
+          override: 'none' | 'force_open';
+          closedTitle: string;
+          closedSubtitle: string;
+        }>;
+        setOverride: (password: string, mode: 'none' | 'force_open') => Promise<boolean>;
+      };
+      health: {
+        runChecks: () => Promise<{
+          diskFreeMb: number;
+          diskOk: boolean;
+          networkOk: boolean;
+          gamesDirOk: boolean;
+          networkLatencyMs: number | null;
+          networkError: string | null;
+          allPassed: boolean;
+          errors: readonly string[];
+        }>;
       };
       system: {
         getVersion: () => string;

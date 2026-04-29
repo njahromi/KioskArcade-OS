@@ -49,6 +49,13 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
         update: (updates) => electron_1.ipcRenderer.invoke('config:update', updates),
         isFeatureEnabled: (feature) => electron_1.ipcRenderer.invoke('config:is-feature-enabled', feature)
     },
+    venue: {
+        getStatus: () => electron_1.ipcRenderer.invoke('venue:get-status'),
+        setOverride: (password, mode) => electron_1.ipcRenderer.invoke('venue:set-override', { password, mode })
+    },
+    health: {
+        runChecks: () => electron_1.ipcRenderer.invoke('health:run-checks')
+    },
     // System information
     system: {
         getVersion: () => process.versions.electron,

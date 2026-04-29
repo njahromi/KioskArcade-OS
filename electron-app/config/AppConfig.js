@@ -58,6 +58,32 @@ exports.defaultConfig = {
         pushNotifications: true,
         remoteControl: true,
         qrCodeAccess: true
+    },
+    venue: {
+        enabled: false,
+        weeklyHours: [
+            { start: '10:00', end: '22:00' },
+            { start: '10:00', end: '22:00' },
+            { start: '10:00', end: '22:00' },
+            { start: '10:00', end: '22:00' },
+            { start: '10:00', end: '22:00' },
+            { start: '10:00', end: '23:00' },
+            { start: '10:00', end: '23:00' }
+        ],
+        closedTitle: 'Sorry, we are closed',
+        closedSubtitle: 'Please visit during posted hours. Thank you!'
+    },
+    healthCheck: {
+        enabled: false,
+        minFreeDiskMb: 256,
+        networkCheckUrl: null,
+        pingTimeoutMs: 8000,
+        blockPublicUntilPass: false
+    },
+    accessibility: {
+        highContrast: false,
+        largeTouchTargets: false,
+        reduceMotion: false
     }
 };
 class ConfigManager {
