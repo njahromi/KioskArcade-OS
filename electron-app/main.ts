@@ -1,5 +1,6 @@
 import { app, BrowserWindow, BrowserView, ipcMain, globalShortcut, screen } from 'electron';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { TokenManager } from './services/TokenManager';
 import { GameManager } from './services/GameManager';
 import { AdminManager } from './services/AdminManager';
@@ -8,12 +9,21 @@ import { AnalyticsManager } from './services/AnalyticsManager';
 import { MultiArcadeManager } from './services/MultiArcadeManager';
 import { VenueScheduleManager } from './services/VenueScheduleManager';
 import { BootHealthManager } from './services/BootHealthManager';
+import { CompetitionManager } from './services/CompetitionManager';
+import { PlayerProfileManager } from './services/PlayerProfileManager';
+import { AchievementManager } from './services/AchievementManager';
+import { LeaderboardManager } from './services/LeaderboardManager';
+import { TournamentScheduler } from './services/TournamentScheduler';
+import { CompetitionSyncService } from './services/CompetitionSyncService';
+import { RewardManager } from './services/RewardManager';
 import { Logger } from './utils/Logger';
 import { ConfigManager } from './config/AppConfig';
+import type { CreateCompetitionInput, RewardType } from './services/competition/types';
 
 interface KioskArcadeConfig {
   readonly isDevelopment: boolean;
   readonly preloadPath: string;
+  readonly gamePreloadPath: string;
   readonly rendererPath: string;
 }
 
@@ -29,9 +39,17 @@ class KioskArcadeApp {
   private readonly multiArcadeManager: MultiArcadeManager;
   private readonly venueScheduleManager: VenueScheduleManager;
   private readonly bootHealthManager: BootHealthManager;
+  private readonly competitionManager: CompetitionManager;
+  private readonly playerProfileManager: PlayerProfileManager;
+  private readonly achievementManager: AchievementManager;
+  private readonly leaderboardManager: LeaderboardManager;
+  private readonly tournamentScheduler: TournamentScheduler;
+  private readonly competitionSyncService: CompetitionSyncService;
+  private readonly rewardManager: RewardManager;
   private readonly logger: Logger;
   private readonly configManager: ConfigManager;
   private readonly config: KioskArcadeConfig;
+  private gameSessionStartedAt = 0;
 
   constructor() {
     this.logger = new Logger();
@@ -46,10 +64,18 @@ class KioskArcadeApp {
     this.multiArcadeManager = new MultiArcadeManager();
     this.venueScheduleManager = new VenueScheduleManager(this.configManager, this.adminManager);
     this.bootHealthManager = new BootHealthManager(this.configManager);
+    this.competitionManager = new CompetitionManager(this.analyticsManager);
+    this.playerProfileManager = new PlayerProfileManager();
+    this.achievementManager = new AchievementManager(this.playerProfileManager);
+    this.leaderboardManager = new LeaderboardManager(this.competitionManager);
+    this.tournamentScheduler = new TournamentScheduler(this.competitionManager);
+    this.competitionSyncService = new CompetitionSyncService(this.competitionManager);
+    this.rewardManager = new RewardManager(this.analyticsManager);
 
     this.config = {
       isDevelopment: process.env.NODE_ENV === 'development',
       preloadPath: path.join(__dirname, 'preload.js'),
+      gamePreloadPath: path.join(__dirname, 'game-preload.js'),
       rendererPath: path.join(__dirname, 'renderer')
     };
   }
@@ -70,8 +96,24 @@ class KioskArcadeApp {
         this.securityManager.initialize(),
         this.adminManager.initialize(),
         this.analyticsManager.initialize(),
-        this.multiArcadeManager.initialize()
+        this.multiArcadeManager.initialize(),
+        this.competitionManager.initialize(),
+        this.playerProfileManager.initialize(),
+        this.achievementManager.initialize(),
+        this.rewardManager.initialize()
       ]);
+
+      const tokenData = await this.tokenManager.getTokenData();
+      const arcadeId = tokenData?.arcadeId || this.configManager.getConfig().arcade.id;
+      const locationId = tokenData?.locationId || this.configManager.getConfig().arcade.locationId;
+      this.competitionManager.setIdentityContext(arcadeId, locationId);
+      this.competitionSyncService.setArcadeId(arcadeId);
+
+      await this.tournamentScheduler.initialize();
+      await this.competitionSyncService.initialize();
+
+      // Refresh mock game HTML so score bridge is present on installed packages
+      await this.gameManager.regenerateInstalledMockGames();
 
       // Setup app event handlers
       this.setupAppEventHandlers();
@@ -81,6 +123,7 @@ class KioskArcadeApp {
       
       // Setup IPC handlers
       this.setupIpcHandlers();
+      this.setupGameGuestIpc();
       
       // Setup global shortcuts (blocked)
       this.setupGlobalShortcuts();
@@ -344,17 +387,262 @@ class KioskArcadeApp {
     ipcMain.handle('health:run-checks', async () => {
       return await this.bootHealthManager.runChecks();
     });
+
+    this.setupCompetitionIpcHandlers();
+  }
+
+  private setupCompetitionIpcHandlers(): void {
+    ipcMain.handle('competition:list', async () => {
+      return this.competitionManager.listCompetitions();
+    });
+
+    ipcMain.handle('competition:get-active', async (_event, gameId?: string) => {
+      return this.competitionManager.getActiveCompetition(gameId);
+    });
+
+    ipcMain.handle(
+      'competition:get-leaderboard',
+      async (_event, payload: { readonly competitionId: string; readonly limit?: number }) => {
+        return this.competitionManager.getLeaderboard(payload.competitionId, payload.limit ?? 20);
+      }
+    );
+
+    ipcMain.handle(
+      'competition:create',
+      async (
+        _event,
+        payload: { readonly password: string } & CreateCompetitionInput
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        const created = await this.competitionManager.createCompetition(payload);
+        if (created) {
+          this.competitionSyncService.enqueueCompetition(created);
+        }
+        return created;
+      }
+    );
+
+    ipcMain.handle(
+      'competition:end',
+      async (_event, payload: { readonly password: string; readonly competitionId: string }) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return false;
+        return this.competitionManager.endCompetition(payload.competitionId);
+      }
+    );
+
+    ipcMain.handle('competition:set-display-name', async (_event, displayName: string) => {
+      return this.competitionManager.setDisplayName(displayName);
+    });
+
+    ipcMain.handle('competition:get-display-name', async () => {
+      return this.competitionManager.getDisplayName();
+    });
+
+    ipcMain.handle('competition:get-flagged', async (_event, competitionId?: string) => {
+      return this.competitionManager.getFlaggedSubmissions(competitionId);
+    });
+
+    ipcMain.handle(
+      'competition:review-submission',
+      async (
+        _event,
+        payload: {
+          readonly password: string;
+          readonly submissionId: string;
+          readonly decision: 'accepted' | 'rejected';
+        }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.competitionManager.reviewSubmission(payload.submissionId, payload.decision);
+      }
+    );
+
+    ipcMain.handle('competition:supported-games', async () => {
+      return this.competitionManager.getAdapterManager().listSupportedGameIds();
+    });
+
+    ipcMain.handle('competition:venue-leaderboard', async (_event, limit?: number) => {
+      return this.leaderboardManager.getVenueTopScores(limit ?? 10);
+    });
+
+    ipcMain.handle('competition:exit-game', async () => {
+      await this.closeGameSession();
+      return true;
+    });
+
+    // Phase 2 — player profiles
+    ipcMain.handle(
+      'player:create',
+      async (_event, payload: { readonly displayName: string; readonly pin?: string }) => {
+        return this.playerProfileManager.createProfile(payload.displayName, payload.pin);
+      }
+    );
+
+    ipcMain.handle('player:list', async () => this.playerProfileManager.listProfiles());
+
+    ipcMain.handle('player:get', async (_event, playerId: string) => {
+      return this.playerProfileManager.getProfile(playerId);
+    });
+
+    ipcMain.handle(
+      'player:identify',
+      async (_event, payload: { readonly qrPayload?: string; readonly playerId?: string; readonly pin?: string }) => {
+        let profile = payload.qrPayload
+          ? this.playerProfileManager.findByQrPayload(payload.qrPayload)
+          : payload.playerId
+            ? this.playerProfileManager.getProfile(payload.playerId)
+            : null;
+        if (!profile) return null;
+        if (payload.pin !== undefined && !this.playerProfileManager.verifyPin(profile.id, payload.pin)) {
+          return null;
+        }
+        this.competitionManager.setPlayerId(profile.id);
+        this.competitionManager.setDisplayName(profile.displayName);
+        return profile;
+      }
+    );
+
+    ipcMain.handle('player:clear', async () => {
+      this.competitionManager.setPlayerId(null);
+      return true;
+    });
+
+    ipcMain.handle('achievements:list', async () => this.achievementManager.listDefinitions());
+
+    ipcMain.handle('achievements:unlocks', async (_event, playerId?: string) => {
+      return this.achievementManager.listUnlocks(playerId);
+    });
+
+    // Phase 3 — schedules & sync
+    ipcMain.handle('competition:list-schedules', async () => this.tournamentScheduler.listSchedules());
+
+    ipcMain.handle(
+      'competition:upsert-schedule',
+      async (
+        _event,
+        payload: {
+          readonly password: string;
+          readonly schedule: {
+            readonly id?: string;
+            readonly name: string;
+            readonly gameId: string;
+            readonly cadence: 'daily' | 'weekly' | 'once';
+            readonly startTime: string;
+            readonly durationMinutes: number;
+            readonly enabled: boolean;
+            readonly seasonId?: string | null;
+            readonly bracketEnabled?: boolean;
+          };
+        }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        const id = payload.schedule.id ?? randomUUID();
+        const existing = this.tournamentScheduler.listSchedules().find((s) => s.id === id);
+        return this.tournamentScheduler.upsertSchedule({
+          id,
+          name: payload.schedule.name,
+          gameId: payload.schedule.gameId,
+          cadence: payload.schedule.cadence,
+          startTime: payload.schedule.startTime,
+          durationMinutes: payload.schedule.durationMinutes,
+          enabled: payload.schedule.enabled,
+          seasonId: payload.schedule.seasonId ?? null,
+          bracketEnabled: payload.schedule.bracketEnabled ?? false,
+          lastSpawnedDate: existing?.lastSpawnedDate ?? null
+        });
+      }
+    );
+
+    ipcMain.handle('competition:sync-now', async (_event, password: string) => {
+      const ok = await this.adminManager.authenticate(password);
+      if (!ok) return null;
+      return this.competitionSyncService.syncNow();
+    });
+
+    ipcMain.handle('competition:sync-queue', async () => this.competitionSyncService.getQueue());
+
+    // Phase 4 — rewards
+    ipcMain.handle('rewards:list', async (_event, activeOnly?: boolean) => {
+      return this.rewardManager.listRewards(!!activeOnly);
+    });
+
+    ipcMain.handle(
+      'rewards:create',
+      async (
+        _event,
+        payload: {
+          readonly password: string;
+          readonly name: string;
+          readonly type: RewardType;
+          readonly description: string;
+          readonly requiresStaffApproval: boolean;
+          readonly competitionId?: string | null;
+        }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.rewardManager.createReward(payload);
+      }
+    );
+
+    ipcMain.handle(
+      'rewards:request',
+      async (
+        _event,
+        payload: {
+          readonly rewardId: string;
+          readonly displayName?: string;
+          readonly competitionId?: string | null;
+        }
+      ) => {
+        return this.rewardManager.requestRedemption({
+          rewardId: payload.rewardId,
+          playerId: this.competitionManager.getPlayerId(),
+          displayName: payload.displayName ?? this.competitionManager.getDisplayName(),
+          competitionId: payload.competitionId
+        });
+      }
+    );
+
+    ipcMain.handle('rewards:redemptions', async (_event, status?: 'pending' | 'approved' | 'rejected' | 'fulfilled') => {
+      return this.rewardManager.listRedemptions(status);
+    });
+
+    ipcMain.handle(
+      'rewards:review',
+      async (
+        _event,
+        payload: {
+          readonly password: string;
+          readonly redemptionId: string;
+          readonly decision: 'approved' | 'rejected' | 'fulfilled';
+          readonly notes?: string;
+        }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.rewardManager.reviewRedemption(
+          payload.redemptionId,
+          payload.decision,
+          'admin',
+          payload.notes
+        );
+      }
+    );
   }
 
   private setupGlobalShortcuts(): void {
-    // Block all common escape shortcuts
+    // Block common escape shortcuts; Escape exits an active game session instead.
     const blockedShortcuts = [
       'CommandOrControl+Q',
       'CommandOrControl+W',
       'CommandOrControl+R',
       'F11',
       'F12',
-      'Escape',
       'Alt+F4',
       'Alt+Tab',
       'CommandOrControl+Alt+Delete',
@@ -368,11 +656,23 @@ class KioskArcadeApp {
       });
     });
 
-    this.logger.info('Global shortcuts blocked');
+    globalShortcut.register('Escape', () => {
+      if (this.gameView) {
+        void this.closeGameSession();
+        return;
+      }
+      this.logger.warn('Blocked shortcut: Escape');
+    });
+
+    this.logger.info('Global shortcuts blocked (Escape exits active game)');
   }
 
   private async launchGame(gameId: string): Promise<boolean> {
     try {
+      if (this.gameView) {
+        await this.closeGameSession();
+      }
+
       // Check if multi-arcade is enabled and select appropriate unit
       if (this.configManager.isMultiArcadeEnabled()) {
         const loadBalancingResult = await this.multiArcadeManager.selectUnitForGame(gameId);
@@ -386,14 +686,18 @@ class KioskArcadeApp {
         throw new Error(`Game ${gameId} not found`);
       }
 
-      // Create game view
+      this.competitionManager.startGameSession(gameId);
+      this.gameSessionStartedAt = Date.now();
+
+      // Create game view with guest score preload
       this.gameView = new BrowserView({
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
           sandbox: true,
           webSecurity: true,
-          allowRunningInsecureContent: false
+          allowRunningInsecureContent: false,
+          preload: this.config.gamePreloadPath
         }
       });
 
@@ -413,19 +717,99 @@ class KioskArcadeApp {
       // Focus game view
       this.gameView.webContents.focus();
 
-      // Track game play time
-      const startTime = Date.now();
-      this.gameView.webContents.on('did-navigate', async () => {
-        const playTime = Date.now() - startTime;
-        await this.analyticsManager.trackGamePlay(gameId, playTime);
-      });
-
       this.logger.info(`Game ${gameId} launched successfully`);
       return true;
     } catch (error) {
       this.logger.error(`Failed to launch game ${gameId}:`, error);
+      this.competitionManager.clearActiveSession();
       return false;
     }
+  }
+
+  private setupGameGuestIpc(): void {
+    ipcMain.on('kioskarcade:score', (event, payload: unknown) => {
+      if (!this.gameView || event.sender !== this.gameView.webContents) {
+        return;
+      }
+      void this.onGuestScore(payload);
+    });
+
+    ipcMain.on('kioskarcade:exit', (event) => {
+      if (!this.gameView || event.sender !== this.gameView.webContents) {
+        return;
+      }
+      void this.closeGameSession();
+    });
+  }
+
+  private async onGuestScore(payload: unknown): Promise<void> {
+    const submission = await this.competitionManager.handleScoreEvent(payload);
+    if (!submission) return;
+
+    if (submission.playerId) {
+      await this.playerProfileManager.updatePersonalBest(
+        submission.playerId,
+        submission.gameId,
+        submission.score
+      );
+      await this.playerProfileManager.recordTournament(
+        submission.playerId,
+        submission.competitionId
+      );
+      await this.achievementManager.evaluateSubmission(submission);
+    }
+    this.competitionSyncService.enqueueScore(submission);
+    this.mainWindow?.webContents.send('competition:score-submitted', submission);
+  }
+
+  private async closeGameSession(): Promise<void> {
+    const session = this.competitionManager.getActiveSession();
+    const gameId = session?.gameId;
+
+    if (session && !session.finalized) {
+      const submission = await this.competitionManager.finalizeSession();
+      if (submission) {
+        if (submission.playerId) {
+          await this.playerProfileManager.updatePersonalBest(
+            submission.playerId,
+            submission.gameId,
+            submission.score
+          );
+          await this.playerProfileManager.recordTournament(
+            submission.playerId,
+            submission.competitionId
+          );
+          await this.achievementManager.evaluateSubmission(submission);
+        }
+        this.competitionSyncService.enqueueScore(submission);
+        this.mainWindow?.webContents.send('competition:score-submitted', submission);
+      }
+    }
+
+    if (gameId && this.gameSessionStartedAt > 0) {
+      const playTime = Date.now() - this.gameSessionStartedAt;
+      await this.analyticsManager.trackGamePlay(gameId, playTime);
+    }
+
+    if (this.gameView && this.mainWindow) {
+      try {
+        this.mainWindow.removeBrowserView(this.gameView);
+      } catch {
+        // ignore
+      }
+      try {
+        (this.gameView.webContents as unknown as { destroy?: () => void }).destroy?.();
+      } catch {
+        // ignore
+      }
+      this.gameView = null;
+    }
+
+    this.competitionManager.clearActiveSession();
+    this.gameSessionStartedAt = 0;
+    this.mainWindow?.webContents.focus();
+    this.mainWindow?.webContents.send('competition:game-exited', {});
+    this.logger.info('Game session closed');
   }
 
   private async showAdminInterface(): Promise<void> {

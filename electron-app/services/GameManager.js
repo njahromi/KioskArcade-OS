@@ -238,6 +238,7 @@ class GameManager {
             height: 100vh;
             font-family: Arial, sans-serif;
             color: white;
+            overflow: hidden;
         }
         #gameCanvas {
             border: 2px solid #333;
@@ -250,122 +251,199 @@ class GameManager {
             font-size: 14px;
             color: #ccc;
         }
+        .hint {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 13px;
+            color: #888;
+        }
     </style>
 </head>
 <body>
     <div class="game-info">
         <div>${gameInfo.name}</div>
         <div>Version: ${gameInfo.version}</div>
-        <div>Category: ${gameInfo.category}</div>
+        <div id="scoreLabel">Score: 0</div>
+        <div id="extraLabel"></div>
     </div>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
-    
+    <div class="hint">Space = score event · Esc = exit &amp; submit</div>
+
     <script>
-        // Mock WebGL game implementation
+        const GAME_ID = '${gameInfo.id}';
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        
-        let gameState = {
+        const scoreLabel = document.getElementById('scoreLabel');
+        const extraLabel = document.getElementById('extraLabel');
+
+        const gameState = {
             score: 0,
             level: 1,
-            isRunning: true
+            lines: 0,
+            length: 3,
+            isRunning: true,
+            startedAt: Date.now(),
+            lastReportAt: 0,
+            tickAccumMs: 0,
+            lastFrameAt: performance.now()
         };
-        
-        // Game loop
-        function gameLoop() {
-            if (!gameState.isRunning) return;
-            
-            // Clear canvas
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw game elements based on game type
-            drawGame();
-            
-            // Update score
-            gameState.score += 1;
-            
-            requestAnimationFrame(gameLoop);
+
+        function report(event) {
+            const progress = {
+                level: gameState.level,
+                elapsedMs: Date.now() - gameState.startedAt,
+                completed: event === 'final',
+                lines: gameState.lines,
+                length: gameState.length
+            };
+            if (window.kioskArcadeGame && window.kioskArcadeGame.reportScore) {
+                window.kioskArcadeGame.reportScore({
+                    gameId: GAME_ID,
+                    score: gameState.score,
+                    event: event,
+                    progress: progress
+                });
+            }
+            gameState.lastReportAt = Date.now();
         }
-        
-        function drawGame() {
-            const gameId = '${gameInfo.id}';
-            
-            switch(gameId) {
-                case 'tetris':
-                    drawTetris();
-                    break;
-                case 'snake':
-                    drawSnake();
-                    break;
-                case 'pong':
-                    drawPong();
-                    break;
-                default:
-                    drawGeneric();
+
+        function addScore(points) {
+            if (!gameState.isRunning || points <= 0) return;
+            gameState.score += points;
+            scoreLabel.textContent = 'Score: ' + gameState.score;
+            if (Date.now() - gameState.lastReportAt > 1500) {
+                report('update');
             }
         }
-        
+
+        function endGame() {
+            if (!gameState.isRunning) return;
+            gameState.isRunning = false;
+            report('final');
+            if (window.kioskArcadeGame && window.kioskArcadeGame.requestExit) {
+                window.kioskArcadeGame.requestExit();
+            }
+        }
+
+        function gameLoop(now) {
+            if (!gameState.isRunning) return;
+            const dt = Math.min(64, now - gameState.lastFrameAt);
+            gameState.lastFrameAt = now;
+            gameState.tickAccumMs += dt;
+
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Discrete scoring: one point pulse every ~800ms while running (not every frame).
+            while (gameState.tickAccumMs >= 800) {
+                gameState.tickAccumMs -= 800;
+                if (GAME_ID === 'tetris') {
+                    gameState.lines += 1;
+                    if (gameState.lines % 10 === 0) gameState.level += 1;
+                    addScore(10 * gameState.level);
+                    extraLabel.textContent = 'Lines: ' + gameState.lines + '  Level: ' + gameState.level;
+                } else if (GAME_ID === 'snake') {
+                    gameState.length += 1;
+                    addScore(5);
+                    extraLabel.textContent = 'Length: ' + gameState.length;
+                } else if (GAME_ID === 'pong') {
+                    addScore(1);
+                    extraLabel.textContent = 'Rally points';
+                } else {
+                    addScore(1);
+                }
+            }
+
+            drawGame();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function drawGame() {
+            switch (GAME_ID) {
+                case 'tetris': drawTetris(); break;
+                case 'snake': drawSnake(); break;
+                case 'pong': drawPong(); break;
+                default: drawGeneric();
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '20px Arial';
+            ctx.fillText('Score: ' + gameState.score, 330, 40);
+        }
+
         function drawTetris() {
-            // Draw tetris blocks
             const blockSize = 20;
+            const seed = Math.floor(gameState.lines / 2);
             for (let i = 0; i < 10; i++) {
-                for (let j = 0; j < 20; j++) {
-                    if (Math.random() > 0.7) {
+                for (let j = 0; j < Math.min(20, 4 + (seed % 12)); j++) {
+                    if ((i * 7 + j * 3 + seed) % 5 !== 0) {
                         ctx.fillStyle = '#00ff00';
-                        ctx.fillRect(i * blockSize + 300, j * blockSize + 100, blockSize - 1, blockSize - 1);
+                        ctx.fillRect(i * blockSize + 300, 500 - j * blockSize, blockSize - 1, blockSize - 1);
                     }
                 }
             }
         }
-        
+
         function drawSnake() {
-            // Draw snake
             ctx.fillStyle = '#00ff00';
-            for (let i = 0; i < 10; i++) {
-                ctx.fillRect(400 + i * 20, 300, 18, 18);
+            const len = Math.min(gameState.length, 30);
+            for (let i = 0; i < len; i++) {
+                ctx.fillRect(200 + i * 18, 300, 16, 16);
             }
-            
-            // Draw food
             ctx.fillStyle = '#ff0000';
-            ctx.fillRect(600, 300, 18, 18);
+            ctx.fillRect(200 + len * 18 + 20, 300, 16, 16);
         }
-        
+
         function drawPong() {
-            // Draw paddles
+            const t = (Date.now() - gameState.startedAt) / 16;
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(50, 250, 10, 100);
             ctx.fillRect(740, 250, 10, 100);
-            
-            // Draw ball
-            ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.arc(400, 300, 5, 0, 2 * Math.PI);
+            ctx.arc(400 + Math.sin(t / 40) * 200, 300 + Math.cos(t / 55) * 120, 5, 0, 2 * Math.PI);
             ctx.fill();
         }
-        
+
         function drawGeneric() {
-            // Draw generic game elements
             ctx.fillStyle = '#ffffff';
             ctx.font = '24px Arial';
             ctx.fillText('${gameInfo.name}', 350, 300);
-            ctx.font = '16px Arial';
-            ctx.fillText('Score: ' + gameState.score, 350, 330);
         }
-        
-        // Start game
-        gameLoop();
-        
-        // Handle keyboard input
+
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                gameState.isRunning = false;
-                // In a real implementation, this would return to the arcade menu
+                e.preventDefault();
+                endGame();
+            } else if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                if (GAME_ID === 'tetris') {
+                    gameState.lines += 4;
+                    addScore(100 * gameState.level);
+                } else if (GAME_ID === 'snake') {
+                    gameState.length += 2;
+                    addScore(25);
+                } else {
+                    addScore(10);
+                }
             }
         });
+
+        report('update');
+        requestAnimationFrame(gameLoop);
     </script>
 </body>
 </html>`;
+    }
+    /** Force-regenerate installed mock HTML so score bridge updates apply. */
+    async regenerateInstalledMockGames() {
+        for (const game of this.localGames.values()) {
+            if (!game.isInstalled || !game.localPath)
+                continue;
+            const remote = this.remoteManifest?.games.find((g) => g.id === game.id);
+            const info = remote ?? game;
+            await this.createMockGame(game.localPath, info);
+        }
     }
     async updateGame(gameId) {
         try {

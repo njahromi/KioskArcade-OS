@@ -6,6 +6,8 @@ import AdminAccess from './components/AdminAccess';
 import BootHealthGate from './components/BootHealthGate';
 import ClosedVenueScreen from './components/ClosedVenueScreen';
 import VenueOverrideControls from './components/VenueOverrideControls';
+import TournamentBrowser from './components/TournamentBrowser';
+import TournamentAdmin from './components/TournamentAdmin';
 
 interface SystemInfo {
   readonly arcadeId: string;
@@ -159,6 +161,23 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, []);
 
+  useEffect(() => {
+    if (!window.electronAPI?.competition?.onScoreSubmitted) return;
+    const offScore = window.electronAPI.competition.onScoreSubmitted(() => {
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['competitions'] });
+      void queryClient.invalidateQueries({ queryKey: ['flaggedScores'] });
+    });
+    const offExit = window.electronAPI.competition.onGameExited?.(() => {
+      setIsLoading(false);
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
+    });
+    return () => {
+      offScore?.();
+      offExit?.();
+    };
+  }, [queryClient]);
+
   const needsHealthGate =
     appConfig?.healthCheck?.enabled === true && appConfig?.healthCheck?.blockPublicUntilPass === true;
 
@@ -235,6 +254,9 @@ const App: React.FC = () => {
         {currentView === 'games' && !venueClosed && (
           <div>
             <h2 className="text-2xl font-bold mb-6">Available Games</h2>
+            {appConfig.competitions?.enabled !== false && (
+              <TournamentBrowser onLaunchGame={(id) => void handleGameLaunch(id)} />
+            )}
             {gamesLoading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4" />
@@ -297,13 +319,18 @@ const App: React.FC = () => {
                 Back to Games
               </button>
             </div>
-            <VenueOverrideControls
-              sessionPassword={adminSessionPassword}
-              venueEnabled={appConfig.venue.enabled}
-              venueOverride={venueStatus.override}
-              onLogout={handleAdminLogout}
-              onVenueChanged={handleVenueChanged}
-            />
+            <div className="space-y-8">
+              <VenueOverrideControls
+                sessionPassword={adminSessionPassword}
+                venueEnabled={appConfig.venue.enabled}
+                venueOverride={venueStatus.override}
+                onLogout={handleAdminLogout}
+                onVenueChanged={handleVenueChanged}
+              />
+              {appConfig.competitions?.enabled !== false && (
+                <TournamentAdmin sessionPassword={adminSessionPassword} />
+              )}
+            </div>
           </div>
         )}
       </main>

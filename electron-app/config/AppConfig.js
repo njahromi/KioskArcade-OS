@@ -84,6 +84,11 @@ exports.defaultConfig = {
         highContrast: false,
         largeTouchTargets: false,
         reduceMotion: false
+    },
+    competitions: {
+        enabled: true,
+        syncEnabled: false,
+        syncIntervalMs: 60000
     }
 };
 class ConfigManager {
@@ -126,6 +131,12 @@ class ConfigManager {
     }
     isMultiplayerEnabled() {
         return this.config.games.multiplayerEnabled;
+    }
+    isCompetitionsEnabled() {
+        return this.config.competitions.enabled;
+    }
+    isCompetitionSyncEnabled() {
+        return this.config.competitions.enabled && this.config.competitions.syncEnabled;
     }
 }
 exports.ConfigManager = ConfigManager;

@@ -56,6 +56,52 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     health: {
         runChecks: () => electron_1.ipcRenderer.invoke('health:run-checks')
     },
+    competition: {
+        list: () => electron_1.ipcRenderer.invoke('competition:list'),
+        getActive: (gameId) => electron_1.ipcRenderer.invoke('competition:get-active', gameId),
+        getLeaderboard: (competitionId, limit) => electron_1.ipcRenderer.invoke('competition:get-leaderboard', { competitionId, limit }),
+        create: (password, input) => electron_1.ipcRenderer.invoke('competition:create', { password, ...input }),
+        end: (password, competitionId) => electron_1.ipcRenderer.invoke('competition:end', { password, competitionId }),
+        setDisplayName: (displayName) => electron_1.ipcRenderer.invoke('competition:set-display-name', displayName),
+        getDisplayName: () => electron_1.ipcRenderer.invoke('competition:get-display-name'),
+        getFlagged: (competitionId) => electron_1.ipcRenderer.invoke('competition:get-flagged', competitionId),
+        reviewSubmission: (password, submissionId, decision) => electron_1.ipcRenderer.invoke('competition:review-submission', { password, submissionId, decision }),
+        supportedGames: () => electron_1.ipcRenderer.invoke('competition:supported-games'),
+        venueLeaderboard: (limit) => electron_1.ipcRenderer.invoke('competition:venue-leaderboard', limit),
+        exitGame: () => electron_1.ipcRenderer.invoke('competition:exit-game'),
+        listSchedules: () => electron_1.ipcRenderer.invoke('competition:list-schedules'),
+        upsertSchedule: (password, schedule) => electron_1.ipcRenderer.invoke('competition:upsert-schedule', { password, schedule }),
+        syncNow: (password) => electron_1.ipcRenderer.invoke('competition:sync-now', password),
+        syncQueue: () => electron_1.ipcRenderer.invoke('competition:sync-queue'),
+        onScoreSubmitted: (callback) => {
+            const listener = (_event, submission) => callback(submission);
+            electron_1.ipcRenderer.on('competition:score-submitted', listener);
+            return () => electron_1.ipcRenderer.removeListener('competition:score-submitted', listener);
+        },
+        onGameExited: (callback) => {
+            const listener = () => callback();
+            electron_1.ipcRenderer.on('competition:game-exited', listener);
+            return () => electron_1.ipcRenderer.removeListener('competition:game-exited', listener);
+        }
+    },
+    player: {
+        create: (displayName, pin) => electron_1.ipcRenderer.invoke('player:create', { displayName, pin }),
+        list: () => electron_1.ipcRenderer.invoke('player:list'),
+        get: (playerId) => electron_1.ipcRenderer.invoke('player:get', playerId),
+        identify: (payload) => electron_1.ipcRenderer.invoke('player:identify', payload),
+        clear: () => electron_1.ipcRenderer.invoke('player:clear')
+    },
+    achievements: {
+        list: () => electron_1.ipcRenderer.invoke('achievements:list'),
+        unlocks: (playerId) => electron_1.ipcRenderer.invoke('achievements:unlocks', playerId)
+    },
+    rewards: {
+        list: (activeOnly) => electron_1.ipcRenderer.invoke('rewards:list', activeOnly),
+        create: (password, input) => electron_1.ipcRenderer.invoke('rewards:create', { password, ...input }),
+        request: (rewardId, displayName, competitionId) => electron_1.ipcRenderer.invoke('rewards:request', { rewardId, displayName, competitionId }),
+        redemptions: (status) => electron_1.ipcRenderer.invoke('rewards:redemptions', status),
+        review: (password, redemptionId, decision, notes) => electron_1.ipcRenderer.invoke('rewards:review', { password, redemptionId, decision, notes })
+    },
     // System information
     system: {
         getVersion: () => process.versions.electron,

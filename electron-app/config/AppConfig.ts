@@ -86,6 +86,13 @@ export interface AppConfig {
     readonly largeTouchTargets: boolean;
     readonly reduceMotion: boolean;
   };
+
+  readonly competitions: {
+    readonly enabled: boolean;
+    /** Phase 3: attempt venue sync when online */
+    readonly syncEnabled: boolean;
+    readonly syncIntervalMs: number;
+  };
 }
 
 export const defaultConfig: AppConfig = {
@@ -181,6 +188,12 @@ export const defaultConfig: AppConfig = {
     highContrast: false,
     largeTouchTargets: false,
     reduceMotion: false
+  },
+
+  competitions: {
+    enabled: true,
+    syncEnabled: false,
+    syncIntervalMs: 60_000
   }
 };
 
@@ -235,5 +248,13 @@ export class ConfigManager {
   
   isMultiplayerEnabled(): boolean {
     return this.config.games.multiplayerEnabled;
+  }
+
+  isCompetitionsEnabled(): boolean {
+    return this.config.competitions.enabled;
+  }
+
+  isCompetitionSyncEnabled(): boolean {
+    return this.config.competitions.enabled && this.config.competitions.syncEnabled;
   }
 } 
