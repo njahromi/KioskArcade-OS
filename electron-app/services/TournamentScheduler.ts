@@ -34,6 +34,7 @@ export class TournamentScheduler {
   private schedules: TournamentSchedule[] = [];
   private timer: NodeJS.Timeout | null = null;
   private onCompetitionSpawned: ((competition: Competition) => void) | null = null;
+  private onCompetitionEnded: ((competitionId: string) => Promise<void>) | null = null;
 
   constructor(competitionManager: CompetitionManager) {
     this.logger = new Logger();
@@ -43,6 +44,10 @@ export class TournamentScheduler {
 
   setOnCompetitionSpawned(handler: ((competition: Competition) => void) | null): void {
     this.onCompetitionSpawned = handler;
+  }
+
+  setOnCompetitionEnded(handler: ((competitionId: string) => Promise<void>) | null): void {
+    this.onCompetitionEnded = handler;
   }
 
   async initialize(): Promise<void> {
@@ -244,7 +249,11 @@ export class TournamentScheduler {
     for (const c of this.competitionManager.listCompetitions()) {
       if (c.status !== 'active' || !c.endsAt) continue;
       if (Date.parse(c.endsAt) < Date.now()) {
-        await this.competitionManager.endCompetition(c.id);
+        if (this.onCompetitionEnded) {
+          await this.onCompetitionEnded(c.id);
+        } else {
+          await this.competitionManager.endCompetition(c.id);
+        }
       }
     }
 

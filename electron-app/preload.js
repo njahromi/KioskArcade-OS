@@ -79,6 +79,7 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
         syncQueue: () => electron_1.ipcRenderer.invoke('competition:sync-queue'),
         syncStatus: () => electron_1.ipcRenderer.invoke('competition:sync-status'),
         setSyncEnabled: (password, enabled) => electron_1.ipcRenderer.invoke('competition:set-sync-enabled', { password, enabled }),
+        engagement: () => electron_1.ipcRenderer.invoke('competition:engagement'),
         onScoreSubmitted: (callback) => {
             const listener = (_event, submission) => callback(submission);
             electron_1.ipcRenderer.on('competition:score-submitted', listener);
@@ -122,9 +123,24 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     rewards: {
         list: (activeOnly) => electron_1.ipcRenderer.invoke('rewards:list', activeOnly),
         create: (password, input) => electron_1.ipcRenderer.invoke('rewards:create', { password, ...input }),
+        setActive: (password, rewardId, active) => electron_1.ipcRenderer.invoke('rewards:set-active', { password, rewardId, active }),
         request: (rewardId, displayName, competitionId) => electron_1.ipcRenderer.invoke('rewards:request', { rewardId, displayName, competitionId }),
         redemptions: (status) => electron_1.ipcRenderer.invoke('rewards:redemptions', status),
+        mine: () => electron_1.ipcRenderer.invoke('rewards:mine'),
+        audit: (limit) => electron_1.ipcRenderer.invoke('rewards:audit', limit),
         review: (password, redemptionId, decision, notes) => electron_1.ipcRenderer.invoke('rewards:review', { password, redemptionId, decision, notes })
+    },
+    season: {
+        list: () => electron_1.ipcRenderer.invoke('season:list'),
+        getActive: () => electron_1.ipcRenderer.invoke('season:get-active'),
+        standings: (seasonId) => electron_1.ipcRenderer.invoke('season:standings', seasonId),
+        create: (password, input) => electron_1.ipcRenderer.invoke('season:create', { password, ...input }),
+        end: (password, seasonId) => electron_1.ipcRenderer.invoke('season:end', { password, seasonId })
+    },
+    bracket: {
+        list: (competitionId) => electron_1.ipcRenderer.invoke('bracket:list', competitionId),
+        get: (bracketId) => electron_1.ipcRenderer.invoke('bracket:get', bracketId),
+        create: (password, competitionId, size, name) => electron_1.ipcRenderer.invoke('bracket:create', { password, competitionId, size, name })
     },
     // System information
     system: {

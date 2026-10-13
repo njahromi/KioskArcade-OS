@@ -113,6 +113,7 @@ interface Window {
       syncQueue: () => Promise<any[]>;
       syncStatus: () => Promise<any>;
       setSyncEnabled: (password: string, enabled: boolean) => Promise<any | null>;
+      engagement: () => Promise<any>;
       onScoreSubmitted: (callback: (submission: unknown) => void) => () => void;
       onGameExited: (callback: () => void) => () => void;
       onEventSpawned: (callback: (competition: unknown) => void) => () => void;
@@ -150,8 +151,11 @@ interface Window {
           description: string;
           requiresStaffApproval: boolean;
           competitionId?: string | null;
+          seasonId?: string | null;
+          autoGrantTopN?: number | null;
         }
       ) => Promise<any | null>;
+      setActive: (password: string, rewardId: string, active: boolean) => Promise<any | null>;
       request: (
         rewardId: string,
         displayName?: string,
@@ -160,11 +164,38 @@ interface Window {
       redemptions: (
         status?: 'pending' | 'approved' | 'rejected' | 'fulfilled'
       ) => Promise<any[]>;
+      mine: () => Promise<any[]>;
+      audit: (limit?: number) => Promise<any[]>;
       review: (
         password: string,
         redemptionId: string,
         decision: 'approved' | 'rejected' | 'fulfilled',
         notes?: string
+      ) => Promise<any | null>;
+    };
+    season: {
+      list: () => Promise<any[]>;
+      getActive: () => Promise<any | null>;
+      standings: (seasonId: string) => Promise<any[]>;
+      create: (
+        password: string,
+        input: {
+          name: string;
+          description?: string;
+          startsAt?: string;
+          endsAt?: string | null;
+        }
+      ) => Promise<any | null>;
+      end: (password: string, seasonId: string) => Promise<any | null>;
+    };
+    bracket: {
+      list: (competitionId?: string) => Promise<any[]>;
+      get: (bracketId: string) => Promise<any | null>;
+      create: (
+        password: string,
+        competitionId: string,
+        size?: number,
+        name?: string
       ) => Promise<any | null>;
     };
     system: {

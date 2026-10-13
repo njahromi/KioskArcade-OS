@@ -50,6 +50,25 @@ export class ScoreValidationService {
       return { status: 'flagged', reason: 'implausible_score_jump' };
     }
 
+    // Stronger checks when adapters report trusted progress fields.
+    const progress = sample.progress;
+    if (progress && sample.event === 'final') {
+      if (typeof progress.elapsedMs === 'number' && progress.elapsedMs + 500 < elapsed * 0.25) {
+        return { status: 'flagged', reason: 'progress_timing_mismatch' };
+      }
+      if (sample.gameId === 'tetris' && typeof progress.lines === 'number') {
+        // Mock tetris awards ~10*level per line pulse; more than ~200 pts/line is suspicious.
+        if (progress.lines > 0 && sample.score / progress.lines > 250) {
+          return { status: 'flagged', reason: 'tetris_score_vs_lines_implausible' };
+        }
+      }
+      if (sample.gameId === 'snake' && typeof progress.length === 'number') {
+        if (progress.length > 0 && sample.score > progress.length * 50) {
+          return { status: 'flagged', reason: 'snake_score_vs_length_implausible' };
+        }
+      }
+    }
+
     return { status: 'accepted' };
   }
 

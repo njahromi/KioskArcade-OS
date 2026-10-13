@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
-import { Flag, Plus, Square, RefreshCw, Gift, Trash2, Network } from 'lucide-react';
+import { Flag, Plus, Square, RefreshCw, Gift, Trash2, Network, Medal } from 'lucide-react';
+import CompetitionAnalyticsPanel from './CompetitionAnalyticsPanel';
 
 interface TournamentAdminProps {
   readonly sessionPassword: string;
@@ -13,6 +14,10 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
   const [gameId, setGameId] = useState('tetris');
   const [busy, setBusy] = useState(false);
   const [rewardName, setRewardName] = useState('Free Play Credit');
+  const [rewardType, setRewardType] = useState<'badge' | 'free_play' | 'coupon' | 'prize'>('free_play');
+  const [autoGrantTopN, setAutoGrantTopN] = useState(3);
+  const [seasonName, setSeasonName] = useState('Spring Championship');
+  const [enableBracket, setEnableBracket] = useState(false);
   const [scheduleName, setScheduleName] = useState('Evening Challenge');
   const [scheduleTime, setScheduleTime] = useState('18:00');
   const [scheduleCadence, setScheduleCadence] = useState<'daily' | 'weekly' | 'once'>('daily');
@@ -53,6 +58,18 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
     refetchInterval: 10_000
   });
 
+  const { data: seasons = [] } = useQuery({
+    queryKey: ['seasons'],
+    queryFn: () => window.electronAPI.season.list(),
+    refetchInterval: 20_000
+  });
+
+  const { data: audit = [] } = useQuery({
+    queryKey: ['rewardAudit'],
+    queryFn: () => window.electronAPI.rewards.audit(30),
+    refetchInterval: 15_000
+  });
+
   useEffect(() => {
     const off = window.electronAPI.competition.onSyncStatus?.(() => {
       void queryClient.invalidateQueries({ queryKey: ['competitionSyncStatus'] });
@@ -77,10 +94,13 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
   const createCompetition = async () => {
     setBusy(true);
     try {
+      const activeSeason = await window.electronAPI.season.getActive();
       const created = await window.electronAPI.competition.create(sessionPassword, {
         name,
         gameId,
-        metric: 'high_score'
+        metric: 'high_score',
+        seasonId: activeSeason?.id ?? null,
+        bracketEnabled: enableBracket
       });
       if (created) {
         toast.success(`Competition “${created.name}” is live`);
@@ -145,14 +165,49 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
   const createReward = async () => {
     const reward = await window.electronAPI.rewards.create(sessionPassword, {
       name: rewardName,
-      type: 'free_play',
-      description: 'One free play credit for top finishers',
-      requiresStaffApproval: true
+      type: rewardType,
+      description: `${rewardType} reward`,
+      requiresStaffApproval: rewardType !== 'badge',
+      autoGrantTopN: autoGrantTopN > 0 ? autoGrantTopN : null
     });
     if (reward) {
       toast.success('Reward created');
+      refresh();
     } else {
       toast.error('Could not create reward');
+    }
+  };
+
+  const createSeason = async () => {
+    const season = await window.electronAPI.season.create(sessionPassword, {
+      name: seasonName,
+      description: 'Seasonal arcade championship'
+    });
+    if (season) {
+      toast.success(`Season “${season.name}” created`);
+      void queryClient.invalidateQueries({ queryKey: ['seasons'] });
+      void queryClient.invalidateQueries({ queryKey: ['activeSeason'] });
+    } else {
+      toast.error('Could not create season');
+    }
+  };
+
+  const endSeason = async (seasonId: string) => {
+    const ended = await window.electronAPI.season.end(sessionPassword, seasonId);
+    if (ended) {
+      toast.success('Season ended — ranks written to profiles');
+      void queryClient.invalidateQueries({ queryKey: ['seasons'] });
+      void queryClient.invalidateQueries({ queryKey: ['activeSeason'] });
+    }
+  };
+
+  const buildBracket = async (competitionId: string) => {
+    const bracket = await window.electronAPI.bracket.create(sessionPassword, competitionId, 8);
+    if (bracket) {
+      toast.success(`Bracket ready — champion: ${bracket.championName ?? 'TBD'}`);
+      void queryClient.invalidateQueries({ queryKey: ['brackets'] });
+    } else {
+      toast.error('Could not build bracket');
     }
   };
 
@@ -243,6 +298,14 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
             </select>
           </label>
         </div>
+        <label className="flex items-center gap-2 text-sm text-gray-300 mb-4">
+          <input
+            type="checkbox"
+            checked={enableBracket}
+            onChange={(e) => setEnableBracket(e.target.checked)}
+          />
+          Build elimination bracket when this event ends
+        </label>
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
@@ -314,21 +377,79 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
                     {c.gameId} · {c.status}
                   </div>
                 </div>
-                {c.status === 'active' && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void endCompetition(c.id)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white text-xs"
-                  >
-                    <Square size={14} />
-                    End
-                  </button>
-                )}
+                <span className="flex gap-2">
+                  {c.status === 'ended' && (
+                    <button
+                      type="button"
+                      onClick={() => void buildBracket(c.id)}
+                      className="px-3 py-1.5 rounded bg-violet-700 hover:bg-violet-600 text-white text-xs"
+                    >
+                      Bracket
+                    </button>
+                  )}
+                  {c.status === 'active' && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void endCompetition(c.id)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white text-xs"
+                    >
+                      <Square size={14} />
+                      End
+                    </button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+          <Medal size={18} className="text-yellow-400" />
+          Seasons
+        </h3>
+        <div className="flex flex-wrap gap-3 items-end mb-4">
+          <label className="text-sm text-gray-300 flex-1 min-w-[160px]">
+            Season name
+            <input
+              value={seasonName}
+              onChange={(e) => setSeasonName(e.target.value)}
+              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void createSeason()}
+            className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-white text-sm"
+          >
+            Start season
+          </button>
+        </div>
+        <ul className="space-y-2">
+          {seasons.map((s: { id: string; name: string; status: string }) => (
+            <li
+              key={s.id}
+              className="flex justify-between items-center bg-gray-900/50 rounded px-3 py-2 text-sm"
+            >
+              <span className="text-gray-200">
+                {s.name}{' '}
+                <span className="text-xs font-mono text-gray-500">{s.status}</span>
+              </span>
+              {s.status !== 'ended' && (
+                <button
+                  type="button"
+                  onClick={() => void endSeason(s.id)}
+                  className="px-2 py-1 rounded bg-slate-700 text-xs text-white"
+                >
+                  End
+                </button>
+              )}
+            </li>
+          ))}
+          {seasons.length === 0 && <li className="text-sm text-gray-400">No seasons yet.</li>}
+        </ul>
       </div>
 
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
@@ -493,8 +614,8 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
           <Gift size={18} />
           Rewards
         </h3>
-        <div className="flex flex-wrap gap-3 items-end mb-4">
-          <label className="text-sm text-gray-300 flex-1 min-w-[160px]">
+        <div className="grid gap-3 sm:grid-cols-2 mb-3">
+          <label className="text-sm text-gray-300">
             Reward name
             <input
               value={rewardName}
@@ -502,16 +623,42 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
               className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
             />
           </label>
-          <button
-            type="button"
-            onClick={() => void createReward()}
-            className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm"
-          >
-            Create free-play reward
-          </button>
+          <label className="text-sm text-gray-300">
+            Type
+            <select
+              value={rewardType}
+              onChange={(e) =>
+                setRewardType(e.target.value as 'badge' | 'free_play' | 'coupon' | 'prize')
+              }
+              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
+            >
+              <option value="badge">Badge</option>
+              <option value="free_play">Free play</option>
+              <option value="coupon">Coupon</option>
+              <option value="prize">Prize</option>
+            </select>
+          </label>
+          <label className="text-sm text-gray-300">
+            Auto-grant top N (0 = manual only)
+            <input
+              type="number"
+              min={0}
+              max={10}
+              value={autoGrantTopN}
+              onChange={(e) => setAutoGrantTopN(Number(e.target.value) || 0)}
+              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
+            />
+          </label>
         </div>
+        <button
+          type="button"
+          onClick={() => void createReward()}
+          className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm mb-4"
+        >
+          Create reward
+        </button>
         {redemptions.length > 0 && (
-          <ul className="space-y-2">
+          <ul className="space-y-2 mb-4">
             {redemptions.map((r: { id: string; displayName: string; rewardId: string }) => (
               <li
                 key={r.id}
@@ -531,7 +678,29 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
             ))}
           </ul>
         )}
+        <p className="text-xs text-gray-400 mb-2">Redemption audit trail</p>
+        <ul className="space-y-1 max-h-40 overflow-y-auto text-xs">
+          {audit.map(
+            (r: {
+              id: string;
+              displayName: string;
+              rewardName: string;
+              status: string;
+              requestedAt: string;
+            }) => (
+              <li key={r.id} className="text-gray-400">
+                <span className="text-amber-300">{r.status}</span> {r.displayName} · {r.rewardName}{' '}
+                <span className="text-gray-600">
+                  {new Date(r.requestedAt).toLocaleString()}
+                </span>
+              </li>
+            )
+          )}
+          {audit.length === 0 && <li className="text-gray-500">No redemptions yet.</li>}
+        </ul>
       </div>
+
+      <CompetitionAnalyticsPanel />
     </div>
   );
 };

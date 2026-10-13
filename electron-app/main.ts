@@ -17,6 +17,9 @@ import { LeaderboardManager } from './services/LeaderboardManager';
 import { TournamentScheduler } from './services/TournamentScheduler';
 import { CompetitionSyncService } from './services/CompetitionSyncService';
 import { RewardManager } from './services/RewardManager';
+import { SeasonManager } from './services/SeasonManager';
+import { BracketManager } from './services/BracketManager';
+import { CompetitionEngagementService } from './services/CompetitionEngagementService';
 import { Logger } from './utils/Logger';
 import { ConfigManager } from './config/AppConfig';
 import type { CreateCompetitionInput, RewardType } from './services/competition/types';
@@ -47,6 +50,9 @@ class KioskArcadeApp {
   private readonly tournamentScheduler: TournamentScheduler;
   private readonly competitionSyncService: CompetitionSyncService;
   private readonly rewardManager: RewardManager;
+  private readonly seasonManager: SeasonManager;
+  private readonly bracketManager: BracketManager;
+  private readonly engagementService: CompetitionEngagementService;
   private readonly logger: Logger;
   private readonly configManager: ConfigManager;
   private readonly config: KioskArcadeConfig;
@@ -72,6 +78,16 @@ class KioskArcadeApp {
     this.tournamentScheduler = new TournamentScheduler(this.competitionManager);
     this.competitionSyncService = new CompetitionSyncService(this.competitionManager);
     this.rewardManager = new RewardManager(this.analyticsManager);
+    this.seasonManager = new SeasonManager(
+      this.competitionManager,
+      this.playerProfileManager,
+      this.analyticsManager
+    );
+    this.bracketManager = new BracketManager(this.competitionManager, this.analyticsManager);
+    this.engagementService = new CompetitionEngagementService(
+      this.analyticsManager,
+      this.competitionManager
+    );
 
     this.config = {
       isDevelopment: process.env.NODE_ENV === 'development',
@@ -101,8 +117,12 @@ class KioskArcadeApp {
         this.competitionManager.initialize(),
         this.playerProfileManager.initialize(),
         this.achievementManager.initialize(),
-        this.rewardManager.initialize()
+        this.rewardManager.initialize(),
+        this.seasonManager.initialize(),
+        this.bracketManager.initialize()
       ]);
+
+      this.rewardManager.setCompetitionManager(this.competitionManager);
 
       const tokenData = await this.tokenManager.getTokenData();
       const arcadeId = tokenData?.arcadeId || this.configManager.getConfig().arcade.id;
@@ -113,7 +133,14 @@ class KioskArcadeApp {
         this.competitionSyncService.enqueueCompetition(competition);
         this.mainWindow?.webContents.send('competition:event-spawned', competition);
       });
+      this.tournamentScheduler.setOnCompetitionEnded(async (competitionId) => {
+        await this.finalizeCompetition(competitionId);
+      });
       this.competitionSyncService.setOnSyncComplete((status) => {
+        void this.analyticsManager.trackEvent('competition_sync_completed', 'game_activity', {
+          pushed: status.lastResult?.pushed ?? 0,
+          pulled: status.lastResult?.pulled ?? 0
+        });
         this.mainWindow?.webContents.send('competition:sync-status', status);
       });
 
@@ -436,7 +463,7 @@ class KioskArcadeApp {
       async (_event, payload: { readonly password: string; readonly competitionId: string }) => {
         const ok = await this.adminManager.authenticate(payload.password);
         if (!ok) return false;
-        return this.competitionManager.endCompetition(payload.competitionId);
+        return this.finalizeCompetition(payload.competitionId);
       }
     );
 
@@ -673,11 +700,25 @@ class KioskArcadeApp {
           readonly description: string;
           readonly requiresStaffApproval: boolean;
           readonly competitionId?: string | null;
+          readonly seasonId?: string | null;
+          readonly autoGrantTopN?: number | null;
         }
       ) => {
         const ok = await this.adminManager.authenticate(payload.password);
         if (!ok) return null;
         return this.rewardManager.createReward(payload);
+      }
+    );
+
+    ipcMain.handle(
+      'rewards:set-active',
+      async (
+        _event,
+        payload: { readonly password: string; readonly rewardId: string; readonly active: boolean }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.rewardManager.setRewardActive(payload.rewardId, payload.active);
       }
     );
 
@@ -704,6 +745,17 @@ class KioskArcadeApp {
       return this.rewardManager.listRedemptions(status);
     });
 
+    ipcMain.handle('rewards:mine', async () => {
+      return this.rewardManager.listRedemptionsForPlayer(
+        this.competitionManager.getPlayerId(),
+        this.competitionManager.getDisplayName()
+      );
+    });
+
+    ipcMain.handle('rewards:audit', async (_event, limit?: number) => {
+      return this.rewardManager.getAuditTrail(limit ?? 50);
+    });
+
     ipcMain.handle(
       'rewards:review',
       async (
@@ -725,6 +777,66 @@ class KioskArcadeApp {
         );
       }
     );
+
+    // Phase 4 — seasons, brackets, engagement
+    ipcMain.handle('season:list', async () => this.seasonManager.listSeasons());
+    ipcMain.handle('season:get-active', async () => this.seasonManager.getActiveSeason());
+    ipcMain.handle('season:standings', async (_event, seasonId: string) => {
+      return this.seasonManager.getStandings(seasonId);
+    });
+    ipcMain.handle(
+      'season:create',
+      async (
+        _event,
+        payload: {
+          readonly password: string;
+          readonly name: string;
+          readonly description?: string;
+          readonly startsAt?: string;
+          readonly endsAt?: string | null;
+        }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.seasonManager.createSeason(payload);
+      }
+    );
+    ipcMain.handle(
+      'season:end',
+      async (_event, payload: { readonly password: string; readonly seasonId: string }) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.seasonManager.endSeason(payload.seasonId);
+      }
+    );
+
+    ipcMain.handle('bracket:list', async (_event, competitionId?: string) => {
+      return this.bracketManager.listBrackets(competitionId);
+    });
+    ipcMain.handle('bracket:get', async (_event, bracketId: string) => {
+      return this.bracketManager.getBracket(bracketId);
+    });
+    ipcMain.handle(
+      'bracket:create',
+      async (
+        _event,
+        payload: {
+          readonly password: string;
+          readonly competitionId: string;
+          readonly size?: number;
+          readonly name?: string;
+        }
+      ) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.bracketManager.createFromCompetition(payload.competitionId, {
+          size: payload.size,
+          name: payload.name
+        });
+      }
+    );
+
+    ipcMain.handle('competition:engagement', async () => this.engagementService.getSummary());
   }
 
   private setupGlobalShortcuts(): void {
@@ -834,6 +946,29 @@ class KioskArcadeApp {
     });
   }
 
+  private async finalizeCompetition(competitionId: string): Promise<boolean> {
+    const competition = this.competitionManager.getCompetition(competitionId);
+    if (!competition) return false;
+    const wasActive = competition.status === 'active';
+    const ended = await this.competitionManager.endCompetition(competitionId);
+    if (!ended) return false;
+    if (!wasActive) return true;
+
+    const granted = await this.rewardManager.grantForCompetitionEnd(competitionId);
+    let bracket = null;
+    if (competition.bracketEnabled) {
+      bracket = await this.bracketManager.createFromCompetition(competitionId);
+    }
+
+    this.mainWindow?.webContents.send('competition:ended', {
+      competitionId,
+      rewardsGranted: granted.length,
+      bracketId: bracket?.id ?? null,
+      championName: bracket?.championName ?? null
+    });
+    return true;
+  }
+
   private async processScoreSubmission(
     submission: import('./services/competition/types').ScoreSubmission
   ): Promise<void> {
@@ -850,6 +985,12 @@ class KioskArcadeApp {
       const unlocks = await this.achievementManager.evaluateSubmission(submission);
       if (unlocks.length > 0) {
         const defs = this.achievementManager.listDefinitions();
+        for (const u of unlocks) {
+          await this.analyticsManager.trackEvent('achievement_unlocked', 'game_activity', {
+            achievementId: u.achievementId,
+            playerId: u.playerId
+          });
+        }
         this.mainWindow?.webContents.send(
           'achievements:unlocked',
           unlocks.map((u) => ({

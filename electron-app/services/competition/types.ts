@@ -158,6 +158,9 @@ export interface RewardDefinition {
   readonly description: string;
   readonly requiresStaffApproval: boolean;
   readonly competitionId: string | null;
+  readonly seasonId: string | null;
+  /** Auto-offer to placements 1..N when a competition ends (null = manual claim only) */
+  readonly autoGrantTopN: number | null;
   readonly active: boolean;
   readonly createdAt: string;
 }
@@ -210,4 +213,71 @@ export interface UpcomingEvent {
 export interface CompetitionTransport {
   push(items: readonly SyncQueueItem[]): Promise<{ readonly accepted: readonly string[]; readonly failed: readonly { id: string; error: string }[] }>;
   pull(since: string | null): Promise<{ readonly items: readonly SyncQueueItem[]; readonly cursor: string }>;
+}
+
+export type SeasonStatus = 'upcoming' | 'active' | 'ended';
+
+export interface Season {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly status: SeasonStatus;
+  readonly startsAt: string;
+  readonly endsAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface SeasonStanding {
+  readonly rank: number;
+  readonly playerId: string | null;
+  readonly displayName: string;
+  readonly points: number;
+  readonly competitionsPlayed: number;
+  readonly bestScore: number;
+}
+
+export type BracketMatchStatus = 'pending' | 'ready' | 'complete';
+
+export interface BracketMatch {
+  readonly id: string;
+  readonly round: number;
+  readonly slot: number;
+  readonly playerA: { readonly displayName: string; readonly playerId: string | null; readonly seedScore: number } | null;
+  readonly playerB: { readonly displayName: string; readonly playerId: string | null; readonly seedScore: number } | null;
+  readonly winnerId: string | null;
+  readonly winnerName: string | null;
+  readonly status: BracketMatchStatus;
+}
+
+export interface EliminationBracket {
+  readonly id: string;
+  readonly competitionId: string;
+  readonly seasonId: string | null;
+  readonly name: string;
+  readonly size: number;
+  readonly createdAt: string;
+  readonly matches: readonly BracketMatch[];
+  readonly championName: string | null;
+}
+
+export interface CompetitionEngagementSummary {
+  readonly competitionsCreated: number;
+  readonly competitionsEnded: number;
+  readonly scoresSubmitted: number;
+  readonly scoresFlagged: number;
+  readonly scoresRejected: number;
+  readonly uniqueDisplayNames: number;
+  readonly playerProfilesCreated: number;
+  readonly playerIdentifications: number;
+  readonly rewardsCreated: number;
+  readonly redemptionsRequested: number;
+  readonly redemptionsApproved: number;
+  readonly achievementsUnlocked: number;
+  readonly syncRuns: number;
+  readonly participationByGame: ReadonlyArray<{ readonly gameId: string; readonly submissions: number }>;
+  readonly recentEvents: ReadonlyArray<{
+    readonly eventType: string;
+    readonly at: string;
+    readonly data: Record<string, unknown>;
+  }>;
 }

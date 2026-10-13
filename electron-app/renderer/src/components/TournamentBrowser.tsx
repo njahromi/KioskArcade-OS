@@ -5,6 +5,8 @@ import LiveLeaderboard from './LiveLeaderboard';
 import VenueLeaderboard from './VenueLeaderboard';
 import PlayerProfile from './PlayerProfile';
 import AchievementPanel from './AchievementPanel';
+import RewardsPanel from './RewardsPanel';
+import SeasonPanel from './SeasonPanel';
 
 interface TournamentBrowserProps {
   readonly onLaunchGame: (gameId: string) => void;
@@ -106,6 +108,8 @@ const TournamentBrowser: React.FC<TournamentBrowserProps> = ({ onLaunchGame }) =
           <div className="space-y-4">
             <PlayerProfile />
             <AchievementPanel />
+            <RewardsPanel />
+            <SeasonPanel />
           </div>
         </div>
       )}

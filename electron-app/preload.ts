@@ -115,6 +115,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     syncStatus: () => ipcRenderer.invoke('competition:sync-status'),
     setSyncEnabled: (password: string, enabled: boolean) =>
       ipcRenderer.invoke('competition:set-sync-enabled', { password, enabled }),
+    engagement: () => ipcRenderer.invoke('competition:engagement'),
     onScoreSubmitted: (callback: (submission: unknown) => void) => {
       const listener = (_event: unknown, submission: unknown) => callback(submission);
       ipcRenderer.on('competition:score-submitted', listener);
@@ -168,17 +169,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
       description: string;
       requiresStaffApproval: boolean;
       competitionId?: string | null;
+      seasonId?: string | null;
+      autoGrantTopN?: number | null;
     }) => ipcRenderer.invoke('rewards:create', { password, ...input }),
+    setActive: (password: string, rewardId: string, active: boolean) =>
+      ipcRenderer.invoke('rewards:set-active', { password, rewardId, active }),
     request: (rewardId: string, displayName?: string, competitionId?: string | null) =>
       ipcRenderer.invoke('rewards:request', { rewardId, displayName, competitionId }),
     redemptions: (status?: 'pending' | 'approved' | 'rejected' | 'fulfilled') =>
       ipcRenderer.invoke('rewards:redemptions', status),
+    mine: () => ipcRenderer.invoke('rewards:mine'),
+    audit: (limit?: number) => ipcRenderer.invoke('rewards:audit', limit),
     review: (
       password: string,
       redemptionId: string,
       decision: 'approved' | 'rejected' | 'fulfilled',
       notes?: string
     ) => ipcRenderer.invoke('rewards:review', { password, redemptionId, decision, notes })
+  },
+
+  season: {
+    list: () => ipcRenderer.invoke('season:list'),
+    getActive: () => ipcRenderer.invoke('season:get-active'),
+    standings: (seasonId: string) => ipcRenderer.invoke('season:standings', seasonId),
+    create: (password: string, input: {
+      name: string;
+      description?: string;
+      startsAt?: string;
+      endsAt?: string | null;
+    }) => ipcRenderer.invoke('season:create', { password, ...input }),
+    end: (password: string, seasonId: string) =>
+      ipcRenderer.invoke('season:end', { password, seasonId })
+  },
+
+  bracket: {
+    list: (competitionId?: string) => ipcRenderer.invoke('bracket:list', competitionId),
+    get: (bracketId: string) => ipcRenderer.invoke('bracket:get', bracketId),
+    create: (password: string, competitionId: string, size?: number, name?: string) =>
+      ipcRenderer.invoke('bracket:create', { password, competitionId, size, name })
   },
 
   // System information
@@ -299,6 +327,7 @@ declare global {
         syncQueue: () => Promise<any[]>;
         syncStatus: () => Promise<any>;
         setSyncEnabled: (password: string, enabled: boolean) => Promise<any | null>;
+        engagement: () => Promise<any>;
         onScoreSubmitted: (callback: (submission: unknown) => void) => () => void;
         onGameExited: (callback: () => void) => () => void;
         onEventSpawned: (callback: (competition: unknown) => void) => () => void;
@@ -334,7 +363,10 @@ declare global {
           description: string;
           requiresStaffApproval: boolean;
           competitionId?: string | null;
+          seasonId?: string | null;
+          autoGrantTopN?: number | null;
         }) => Promise<any | null>;
+        setActive: (password: string, rewardId: string, active: boolean) => Promise<any | null>;
         request: (
           rewardId: string,
           displayName?: string,
@@ -343,11 +375,35 @@ declare global {
         redemptions: (
           status?: 'pending' | 'approved' | 'rejected' | 'fulfilled'
         ) => Promise<any[]>;
+        mine: () => Promise<any[]>;
+        audit: (limit?: number) => Promise<any[]>;
         review: (
           password: string,
           redemptionId: string,
           decision: 'approved' | 'rejected' | 'fulfilled',
           notes?: string
+        ) => Promise<any | null>;
+      };
+      season: {
+        list: () => Promise<any[]>;
+        getActive: () => Promise<any | null>;
+        standings: (seasonId: string) => Promise<any[]>;
+        create: (password: string, input: {
+          name: string;
+          description?: string;
+          startsAt?: string;
+          endsAt?: string | null;
+        }) => Promise<any | null>;
+        end: (password: string, seasonId: string) => Promise<any | null>;
+      };
+      bracket: {
+        list: (competitionId?: string) => Promise<any[]>;
+        get: (bracketId: string) => Promise<any | null>;
+        create: (
+          password: string,
+          competitionId: string,
+          size?: number,
+          name?: string
         ) => Promise<any | null>;
       };
       system: {

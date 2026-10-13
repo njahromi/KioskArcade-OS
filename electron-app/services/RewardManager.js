@@ -42,23 +42,74 @@ class RewardManager {
     constructor(analyticsManager) {
         this.rewards = [];
         this.redemptions = [];
+        this.competitionManager = null;
         this.logger = new Logger_1.Logger();
         this.analyticsManager = analyticsManager;
         this.storeFile = path.join(process.cwd(), 'data', 'competition-rewards.json');
+    }
+    setCompetitionManager(manager) {
+        this.competitionManager = manager;
     }
     async initialize() {
         await fs.ensureDir(path.dirname(this.storeFile));
         if (await fs.pathExists(this.storeFile)) {
             const store = (await fs.readJson(this.storeFile));
-            this.rewards = Array.isArray(store.rewards) ? store.rewards : [];
+            this.rewards = Array.isArray(store.rewards)
+                ? store.rewards.map((r) => ({
+                    ...r,
+                    seasonId: r.seasonId ?? null,
+                    autoGrantTopN: r.autoGrantTopN ?? null
+                }))
+                : [];
             this.redemptions = Array.isArray(store.redemptions) ? store.redemptions : [];
         }
         else {
             this.rewards = [];
             this.redemptions = [];
-            await this.save();
+            await this.seedDefaults();
         }
         this.logger.info(`RewardManager initialized (${this.rewards.length} rewards, ${this.redemptions.length} redemptions)`);
+    }
+    async seedDefaults() {
+        this.rewards = [
+            {
+                id: (0, crypto_1.randomUUID)(),
+                name: 'Champion Badge',
+                type: 'badge',
+                description: 'Awarded to the #1 finisher of an event',
+                requiresStaffApproval: false,
+                competitionId: null,
+                seasonId: null,
+                autoGrantTopN: 1,
+                active: true,
+                createdAt: new Date().toISOString()
+            },
+            {
+                id: (0, crypto_1.randomUUID)(),
+                name: 'Free Play Credit',
+                type: 'free_play',
+                description: 'One complimentary play — staff must approve',
+                requiresStaffApproval: true,
+                competitionId: null,
+                seasonId: null,
+                autoGrantTopN: 3,
+                active: true,
+                createdAt: new Date().toISOString()
+            },
+            {
+                id: (0, crypto_1.randomUUID)(),
+                name: 'Venue Coupon',
+                type: 'coupon',
+                description: 'Snack or merch coupon — staff fulfillment required',
+                requiresStaffApproval: true,
+                competitionId: null,
+                seasonId: null,
+                autoGrantTopN: null,
+                active: true,
+                createdAt: new Date().toISOString()
+            }
+        ];
+        await this.save();
     }
     async save() {
         const store = { rewards: this.rewards, redemptions: this.redemptions };
@@ -67,10 +118,20 @@ class RewardManager {
     listRewards(activeOnly = false) {
         return this.rewards.filter((r) => !activeOnly || r.active);
     }
+    getReward(id) {
+        return this.rewards.find((r) => r.id === id) ?? null;
+    }
     listRedemptions(status) {
-        if (!status)
-            return [...this.redemptions];
-        return this.redemptions.filter((r) => r.status === status);
+        const list = status
+            ? this.redemptions.filter((r) => r.status === status)
+            : [...this.redemptions];
+        return list.sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+    }
+    listRedemptionsForPlayer(playerId, displayName) {
+        return this.redemptions
+            .filter((r) => (playerId && r.playerId === playerId) ||
+            (!!displayName && r.displayName.toLowerCase() === displayName.toLowerCase()))
+            .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
     }
     async createReward(input) {
         const reward = {
@@ -78,8 +139,10 @@ class RewardManager {
             name: input.name.trim(),
             type: input.type,
             description: input.description.trim(),
-            requiresStaffApproval: input.requiresStaffApproval,
+            requiresStaffApproval: input.type === 'prize' || input.type === 'coupon' ? true : input.requiresStaffApproval,
             competitionId: input.competitionId ?? null,
+            seasonId: input.seasonId ?? null,
+            autoGrantTopN: input.autoGrantTopN ?? null,
             active: true,
             createdAt: new Date().toISOString()
         };
@@ -91,10 +154,27 @@ class RewardManager {
         });
         return reward;
     }
+    async setRewardActive(rewardId, active) {
+        const idx = this.rewards.findIndex((r) => r.id === rewardId);
+        if (idx < 0)
+            return null;
+        this.rewards[idx] = { ...this.rewards[idx], active };
+        await this.save();
+        return this.rewards[idx];
+    }
     async requestRedemption(input) {
         const reward = this.rewards.find((r) => r.id === input.rewardId && r.active);
         if (!reward)
             return null;
+        // Block duplicate open claims for same reward + identity
+        const open = this.redemptions.some((r) => r.rewardId === reward.id &&
+            (r.status === 'pending' || r.status === 'approved') &&
+            ((input.playerId && r.playerId === input.playerId) ||
+                r.displayName.toLowerCase() === input.displayName.toLowerCase()));
+        if (open) {
+            this.logger.warn(`Duplicate redemption blocked for ${reward.id} / ${input.displayName}`);
+            return null;
+        }
         const status = reward.requiresStaffApproval ? 'pending' : 'approved';
         const redemption = {
             id: (0, crypto_1.randomUUID)(),
@@ -113,7 +193,8 @@ class RewardManager {
         await this.analyticsManager.trackEvent('reward_redemption_requested', 'game_activity', {
             redemptionId: redemption.id,
             rewardId: reward.id,
-            status
+            status,
+            type: reward.type
         });
         return redemption;
     }
@@ -135,6 +216,52 @@ class RewardManager {
             decision
         });
         return this.redemptions[idx];
+    }
+    /** When a competition ends, auto-offer configured rewards to top-N finishers. */
+    async grantForCompetitionEnd(competitionId) {
+        if (!this.competitionManager)
+            return [];
+        const competition = this.competitionManager.getCompetition(competitionId);
+        if (!competition)
+            return [];
+        const board = this.competitionManager.getLeaderboard(competitionId, 10);
+        const granted = [];
+        for (const reward of this.rewards.filter((r) => r.active && r.autoGrantTopN)) {
+            if (reward.competitionId && reward.competitionId !== competitionId)
+                continue;
+            if (reward.seasonId && reward.seasonId !== competition.seasonId)
+                continue;
+            const topN = reward.autoGrantTopN ?? 0;
+            for (const entry of board.filter((e) => e.rank <= topN)) {
+                const redemption = await this.requestRedemption({
+                    rewardId: reward.id,
+                    playerId: entry.playerId,
+                    displayName: entry.displayName,
+                    competitionId
+                });
+                if (redemption)
+                    granted.push(redemption);
+            }
+        }
+        if (granted.length > 0) {
+            await this.analyticsManager.trackEvent('rewards_auto_granted', 'game_activity', {
+                competitionId,
+                count: granted.length
+            });
+        }
+        return granted;
+    }
+    getAuditTrail(limit = 50) {
+        return this.listRedemptions()
+            .slice(0, limit)
+            .map((r) => {
+            const reward = this.getReward(r.rewardId);
+            return {
+                ...r,
+                rewardName: reward?.name ?? r.rewardId,
+                rewardType: reward?.type ?? null
+            };
+        });
     }
 }
 exports.RewardManager = RewardManager;

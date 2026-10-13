@@ -42,12 +42,16 @@ class TournamentScheduler {
         this.schedules = [];
         this.timer = null;
         this.onCompetitionSpawned = null;
+        this.onCompetitionEnded = null;
         this.logger = new Logger_1.Logger();
         this.competitionManager = competitionManager;
         this.schedulesFile = path.join(process.cwd(), 'data', 'tournament-schedules.json');
     }
     setOnCompetitionSpawned(handler) {
         this.onCompetitionSpawned = handler;
+    }
+    setOnCompetitionEnded(handler) {
+        this.onCompetitionEnded = handler;
     }
     async initialize() {
         await fs.ensureDir(path.dirname(this.schedulesFile));
@@ -237,7 +241,12 @@ class TournamentScheduler {
             if (c.status !== 'active' || !c.endsAt)
                 continue;
             if (Date.parse(c.endsAt) < Date.now()) {
-                await this.competitionManager.endCompetition(c.id);
+                if (this.onCompetitionEnded) {
+                    await this.onCompetitionEnded(c.id);
+                }
+                else {
+                    await this.competitionManager.endCompetition(c.id);
+                }
             }
         }
         return spawned;

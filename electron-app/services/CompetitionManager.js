@@ -171,6 +171,8 @@ class CompetitionManager {
         if (idx < 0)
             return false;
         const current = this.competitions[idx];
+        if (current.status === 'ended')
+            return true;
         this.competitions[idx] = {
             ...current,
             status: 'ended',
