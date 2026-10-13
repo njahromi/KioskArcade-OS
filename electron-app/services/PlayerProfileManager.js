@@ -65,21 +65,46 @@ class PlayerProfileManager {
     hashPin(pin) {
         return crypto.createHash('sha256').update(`kioskarcade:${pin}`).digest('hex');
     }
+    toPublic(profile) {
+        return {
+            id: profile.id,
+            displayName: profile.displayName,
+            hasPin: !!profile.pinHash,
+            qrPayload: profile.qrPayload,
+            createdAt: profile.createdAt,
+            personalBests: { ...profile.personalBests },
+            achievementIds: [...profile.achievementIds],
+            tournamentHistory: [...profile.tournamentHistory],
+            seasonalRank: profile.seasonalRank
+        };
+    }
     listProfiles() {
-        return [...this.profiles];
+        return this.profiles.map((p) => this.toPublic(p));
     }
     getProfile(playerId) {
         return this.profiles.find((p) => p.id === playerId) ?? null;
     }
+    getPublicProfile(playerId) {
+        const profile = this.getProfile(playerId);
+        return profile ? this.toPublic(profile) : null;
+    }
     findByQrPayload(qrPayload) {
-        return this.profiles.find((p) => p.qrPayload === qrPayload) ?? null;
+        const cleaned = qrPayload.trim();
+        return this.profiles.find((p) => p.qrPayload === cleaned) ?? null;
+    }
+    requiresPin(playerId) {
+        return !!this.getProfile(playerId)?.pinHash;
     }
     async createProfile(displayName, pin) {
+        const cleanedPin = pin?.trim();
+        if (cleanedPin !== undefined && cleanedPin.length > 0 && !/^\d{4,8}$/.test(cleanedPin)) {
+            throw new Error('PIN must be 4–8 digits');
+        }
         const id = (0, crypto_1.randomUUID)();
         const profile = {
             id,
             displayName: displayName.trim().slice(0, 24) || 'Player',
-            pinHash: pin ? this.hashPin(pin) : null,
+            pinHash: cleanedPin ? this.hashPin(cleanedPin) : null,
             qrPayload: `kioskarcade:player:${id}`,
             createdAt: new Date().toISOString(),
             personalBests: {},
@@ -89,13 +114,41 @@ class PlayerProfileManager {
         };
         this.profiles.push(profile);
         await this.save();
-        return profile;
+        return this.toPublic(profile);
     }
+    /**
+     * Verify PIN when the profile has one.
+     * Returns false if a PIN is required but missing/wrong.
+     */
     verifyPin(playerId, pin) {
         const profile = this.getProfile(playerId);
-        if (!profile?.pinHash)
+        if (!profile)
+            return false;
+        if (!profile.pinHash)
             return true;
-        return profile.pinHash === this.hashPin(pin);
+        if (!pin || !pin.trim())
+            return false;
+        return profile.pinHash === this.hashPin(pin.trim());
+    }
+    /**
+     * Identify by QR payload or player id, enforcing PIN when set.
+     */
+    identify(payload) {
+        const profile = payload.qrPayload
+            ? this.findByQrPayload(payload.qrPayload)
+            : payload.playerId
+                ? this.getProfile(payload.playerId)
+                : null;
+        if (!profile) {
+            return { ok: false, reason: 'not_found' };
+        }
+        if (!this.verifyPin(profile.id, payload.pin)) {
+            if (profile.pinHash && (!payload.pin || !payload.pin.trim())) {
+                return { ok: false, reason: 'pin_required' };
+            }
+            return { ok: false, reason: 'pin_invalid' };
+        }
+        return { ok: true, profile: this.toPublic(profile) };
     }
     async updatePersonalBest(playerId, gameId, score) {
         const idx = this.profiles.findIndex((p) => p.id === playerId);

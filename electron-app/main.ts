@@ -1,6 +1,7 @@
 import { app, BrowserWindow, BrowserView, ipcMain, globalShortcut, screen } from 'electron';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import * as QRCode from 'qrcode';
 import { TokenManager } from './services/TokenManager';
 import { GameManager } from './services/GameManager';
 import { AdminManager } from './services/AdminManager';
@@ -477,31 +478,59 @@ class KioskArcadeApp {
     ipcMain.handle(
       'player:create',
       async (_event, payload: { readonly displayName: string; readonly pin?: string }) => {
-        return this.playerProfileManager.createProfile(payload.displayName, payload.pin);
+        try {
+          const profile = await this.playerProfileManager.createProfile(
+            payload.displayName,
+            payload.pin
+          );
+          this.competitionManager.setPlayerId(profile.id);
+          this.competitionManager.setDisplayName(profile.displayName);
+          await this.analyticsManager.trackEvent('player_profile_created', 'game_activity', {
+            playerId: profile.id
+          });
+          return { ok: true as const, profile };
+        } catch (error) {
+          return {
+            ok: false as const,
+            reason: error instanceof Error ? error.message : 'create_failed'
+          };
+        }
       }
     );
 
     ipcMain.handle('player:list', async () => this.playerProfileManager.listProfiles());
 
     ipcMain.handle('player:get', async (_event, playerId: string) => {
-      return this.playerProfileManager.getProfile(playerId);
+      return this.playerProfileManager.getPublicProfile(playerId);
+    });
+
+    ipcMain.handle('player:get-session', async () => {
+      const playerId = this.competitionManager.getPlayerId();
+      if (!playerId) {
+        return {
+          player: null,
+          displayName: this.competitionManager.getDisplayName()
+        };
+      }
+      return {
+        player: this.playerProfileManager.getPublicProfile(playerId),
+        displayName: this.competitionManager.getDisplayName()
+      };
     });
 
     ipcMain.handle(
       'player:identify',
       async (_event, payload: { readonly qrPayload?: string; readonly playerId?: string; readonly pin?: string }) => {
-        let profile = payload.qrPayload
-          ? this.playerProfileManager.findByQrPayload(payload.qrPayload)
-          : payload.playerId
-            ? this.playerProfileManager.getProfile(payload.playerId)
-            : null;
-        if (!profile) return null;
-        if (payload.pin !== undefined && !this.playerProfileManager.verifyPin(profile.id, payload.pin)) {
-          return null;
+        const result = this.playerProfileManager.identify(payload);
+        if (!result.ok) {
+          return result;
         }
-        this.competitionManager.setPlayerId(profile.id);
-        this.competitionManager.setDisplayName(profile.displayName);
-        return profile;
+        this.competitionManager.setPlayerId(result.profile.id);
+        this.competitionManager.setDisplayName(result.profile.displayName);
+        await this.analyticsManager.trackEvent('player_identified', 'game_activity', {
+          playerId: result.profile.id
+        });
+        return result;
       }
     );
 
@@ -510,10 +539,30 @@ class KioskArcadeApp {
       return true;
     });
 
+    ipcMain.handle('player:qr-data-url', async (_event, playerId?: string) => {
+      const id = playerId ?? this.competitionManager.getPlayerId();
+      if (!id) return null;
+      const profile = this.playerProfileManager.getPublicProfile(id);
+      if (!profile) return null;
+      return QRCode.toDataURL(profile.qrPayload, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 240,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+    });
+
     ipcMain.handle('achievements:list', async () => this.achievementManager.listDefinitions());
 
     ipcMain.handle('achievements:unlocks', async (_event, playerId?: string) => {
       return this.achievementManager.listUnlocks(playerId);
+    });
+
+    ipcMain.handle('achievements:progress', async (_event, playerId?: string) => {
+      const id = playerId ?? this.competitionManager.getPlayerId();
+      if (!id) return [];
+      const profile = this.playerProfileManager.getPublicProfile(id);
+      return this.achievementManager.getProgressForPlayer(id, profile?.personalBests ?? {});
     });
 
     // Phase 3 — schedules & sync
@@ -742,10 +791,9 @@ class KioskArcadeApp {
     });
   }
 
-  private async onGuestScore(payload: unknown): Promise<void> {
-    const submission = await this.competitionManager.handleScoreEvent(payload);
-    if (!submission) return;
-
+  private async processScoreSubmission(
+    submission: import('./services/competition/types').ScoreSubmission
+  ): Promise<void> {
     if (submission.playerId) {
       await this.playerProfileManager.updatePersonalBest(
         submission.playerId,
@@ -756,10 +804,26 @@ class KioskArcadeApp {
         submission.playerId,
         submission.competitionId
       );
-      await this.achievementManager.evaluateSubmission(submission);
+      const unlocks = await this.achievementManager.evaluateSubmission(submission);
+      if (unlocks.length > 0) {
+        const defs = this.achievementManager.listDefinitions();
+        this.mainWindow?.webContents.send(
+          'achievements:unlocked',
+          unlocks.map((u) => ({
+            ...u,
+            name: defs.find((d) => d.id === u.achievementId)?.name ?? u.achievementId
+          }))
+        );
+      }
     }
     this.competitionSyncService.enqueueScore(submission);
     this.mainWindow?.webContents.send('competition:score-submitted', submission);
+  }
+
+  private async onGuestScore(payload: unknown): Promise<void> {
+    const submission = await this.competitionManager.handleScoreEvent(payload);
+    if (!submission) return;
+    await this.processScoreSubmission(submission);
   }
 
   private async closeGameSession(): Promise<void> {
@@ -769,20 +833,7 @@ class KioskArcadeApp {
     if (session && !session.finalized) {
       const submission = await this.competitionManager.finalizeSession();
       if (submission) {
-        if (submission.playerId) {
-          await this.playerProfileManager.updatePersonalBest(
-            submission.playerId,
-            submission.gameId,
-            submission.score
-          );
-          await this.playerProfileManager.recordTournament(
-            submission.playerId,
-            submission.competitionId
-          );
-          await this.achievementManager.evaluateSubmission(submission);
-        }
-        this.competitionSyncService.enqueueScore(submission);
-        this.mainWindow?.webContents.send('competition:score-submitted', submission);
+        await this.processScoreSubmission(submission);
       }
     }
 

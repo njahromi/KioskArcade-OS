@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
+import toast from 'react-hot-toast';
 import GameGrid from './components/GameGrid';
 import SystemStatus from './components/SystemStatus';
 import AdminAccess from './components/AdminAccess';
@@ -167,14 +168,28 @@ const App: React.FC = () => {
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
       void queryClient.invalidateQueries({ queryKey: ['competitions'] });
       void queryClient.invalidateQueries({ queryKey: ['flaggedScores'] });
+      void queryClient.invalidateQueries({ queryKey: ['playerSession'] });
+      void queryClient.invalidateQueries({ queryKey: ['achievementProgress'] });
     });
     const offExit = window.electronAPI.competition.onGameExited?.(() => {
       setIsLoading(false);
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['playerSession'] });
+    });
+    const offUnlock = window.electronAPI.achievements?.onUnlocked?.((unlocks) => {
+      for (const u of unlocks as Array<{ name?: string; achievementId: string }>) {
+        toast.success(`Achievement unlocked: ${u.name ?? u.achievementId}`, {
+          duration: 4000,
+          icon: '🏆'
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['achievementProgress'] });
+      void queryClient.invalidateQueries({ queryKey: ['playerSession'] });
     });
     return () => {
       offScore?.();
       offExit?.();
+      offUnlock?.();
     };
   }, [queryClient]);
 

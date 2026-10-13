@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const crypto_1 = require("crypto");
+const QRCode = __importStar(require("qrcode"));
 const TokenManager_1 = require("./services/TokenManager");
 const GameManager_1 = require("./services/GameManager");
 const AdminManager_1 = require("./services/AdminManager");
@@ -394,34 +395,79 @@ class KioskArcadeApp {
         });
         // Phase 2 — player profiles
         electron_1.ipcMain.handle('player:create', async (_event, payload) => {
-            return this.playerProfileManager.createProfile(payload.displayName, payload.pin);
+            try {
+                const profile = await this.playerProfileManager.createProfile(payload.displayName, payload.pin);
+                this.competitionManager.setPlayerId(profile.id);
+                this.competitionManager.setDisplayName(profile.displayName);
+                await this.analyticsManager.trackEvent('player_profile_created', 'game_activity', {
+                    playerId: profile.id
+                });
+                return { ok: true, profile };
+            }
+            catch (error) {
+                return {
+                    ok: false,
+                    reason: error instanceof Error ? error.message : 'create_failed'
+                };
+            }
         });
         electron_1.ipcMain.handle('player:list', async () => this.playerProfileManager.listProfiles());
         electron_1.ipcMain.handle('player:get', async (_event, playerId) => {
-            return this.playerProfileManager.getProfile(playerId);
+            return this.playerProfileManager.getPublicProfile(playerId);
+        });
+        electron_1.ipcMain.handle('player:get-session', async () => {
+            const playerId = this.competitionManager.getPlayerId();
+            if (!playerId) {
+                return {
+                    player: null,
+                    displayName: this.competitionManager.getDisplayName()
+                };
+            }
+            return {
+                player: this.playerProfileManager.getPublicProfile(playerId),
+                displayName: this.competitionManager.getDisplayName()
+            };
         });
         electron_1.ipcMain.handle('player:identify', async (_event, payload) => {
-            let profile = payload.qrPayload
-                ? this.playerProfileManager.findByQrPayload(payload.qrPayload)
-                : payload.playerId
-                    ? this.playerProfileManager.getProfile(payload.playerId)
-                    : null;
-            if (!profile)
-                return null;
-            if (payload.pin !== undefined && !this.playerProfileManager.verifyPin(profile.id, payload.pin)) {
-                return null;
+            const result = this.playerProfileManager.identify(payload);
+            if (!result.ok) {
+                return result;
             }
-            this.competitionManager.setPlayerId(profile.id);
-            this.competitionManager.setDisplayName(profile.displayName);
-            return profile;
+            this.competitionManager.setPlayerId(result.profile.id);
+            this.competitionManager.setDisplayName(result.profile.displayName);
+            await this.analyticsManager.trackEvent('player_identified', 'game_activity', {
+                playerId: result.profile.id
+            });
+            return result;
         });
         electron_1.ipcMain.handle('player:clear', async () => {
             this.competitionManager.setPlayerId(null);
             return true;
         });
+        electron_1.ipcMain.handle('player:qr-data-url', async (_event, playerId) => {
+            const id = playerId ?? this.competitionManager.getPlayerId();
+            if (!id)
+                return null;
+            const profile = this.playerProfileManager.getPublicProfile(id);
+            if (!profile)
+                return null;
+            return QRCode.toDataURL(profile.qrPayload, {
+                errorCorrectionLevel: 'M',
+                margin: 1,
+                width: 240,
+                color: { dark: '#0f172a', light: '#ffffff' }
+            });
+        });
         electron_1.ipcMain.handle('achievements:list', async () => this.achievementManager.listDefinitions());
         electron_1.ipcMain.handle('achievements:unlocks', async (_event, playerId) => {
             return this.achievementManager.listUnlocks(playerId);
+        });
+        electron_1.ipcMain.handle('achievements:progress', async (_event, playerId) => {
+            const id = playerId ?? this.competitionManager.getPlayerId();
+            if (!id)
+                return [];
+            const profile = this.playerProfileManager.getPublicProfile(id);
+            return this.achievementManager.getProgressForPlayer(id, profile?.personalBests ?? {});
         });
         // Phase 3 — schedules & sync
         electron_1.ipcMain.handle('competition:list-schedules', async () => this.tournamentScheduler.listSchedules());
@@ -571,17 +617,27 @@ class KioskArcadeApp {
             void this.closeGameSession();
         });
     }
+    async processScoreSubmission(submission) {
+        if (submission.playerId) {
+            await this.playerProfileManager.updatePersonalBest(submission.playerId, submission.gameId, submission.score);
+            await this.playerProfileManager.recordTournament(submission.playerId, submission.competitionId);
+            const unlocks = await this.achievementManager.evaluateSubmission(submission);
+            if (unlocks.length > 0) {
+                const defs = this.achievementManager.listDefinitions();
+                this.mainWindow?.webContents.send('achievements:unlocked', unlocks.map((u) => ({
+                    ...u,
+                    name: defs.find((d) => d.id === u.achievementId)?.name ?? u.achievementId
+                })));
+            }
+        }
+        this.competitionSyncService.enqueueScore(submission);
+        this.mainWindow?.webContents.send('competition:score-submitted', submission);
+    }
     async onGuestScore(payload) {
         const submission = await this.competitionManager.handleScoreEvent(payload);
         if (!submission)
             return;
-        if (submission.playerId) {
-            await this.playerProfileManager.updatePersonalBest(submission.playerId, submission.gameId, submission.score);
-            await this.playerProfileManager.recordTournament(submission.playerId, submission.competitionId);
-            await this.achievementManager.evaluateSubmission(submission);
-        }
-        this.competitionSyncService.enqueueScore(submission);
-        this.mainWindow?.webContents.send('competition:score-submitted', submission);
+        await this.processScoreSubmission(submission);
     }
     async closeGameSession() {
         const session = this.competitionManager.getActiveSession();
@@ -589,13 +645,7 @@ class KioskArcadeApp {
         if (session && !session.finalized) {
             const submission = await this.competitionManager.finalizeSession();
             if (submission) {
-                if (submission.playerId) {
-                    await this.playerProfileManager.updatePersonalBest(submission.playerId, submission.gameId, submission.score);
-                    await this.playerProfileManager.recordTournament(submission.playerId, submission.competitionId);
-                    await this.achievementManager.evaluateSubmission(submission);
-                }
-                this.competitionSyncService.enqueueScore(submission);
-                this.mainWindow?.webContents.send('competition:score-submitted', submission);
+                await this.processScoreSubmission(submission);
             }
         }
         if (gameId && this.gameSessionStartedAt > 0) {

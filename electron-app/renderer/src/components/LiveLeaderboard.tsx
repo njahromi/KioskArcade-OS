@@ -69,16 +69,21 @@ const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({ competitionId, compac
           {entries.map((entry: {
             rank: number;
             displayName: string;
+            playerId: string | null;
             score: number;
             validation: string;
+            submissionId: string;
           }) => (
             <li
-              key={`${entry.rank}-${entry.displayName}`}
+              key={entry.submissionId || `${entry.rank}-${entry.displayName}`}
               className="flex items-center justify-between text-sm bg-gray-900/60 rounded px-3 py-2"
             >
               <span className="text-gray-300">
                 <span className="text-amber-300 font-mono mr-2">#{entry.rank}</span>
                 {entry.displayName}
+                {entry.playerId && (
+                  <span className="ml-2 text-[10px] uppercase tracking-wide text-sky-400">profile</span>
+                )}
                 {entry.validation === 'flagged' && (
                   <span className="ml-2 text-xs text-amber-500">review</span>
                 )}

@@ -123,14 +123,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('player:create', { displayName, pin }),
     list: () => ipcRenderer.invoke('player:list'),
     get: (playerId: string) => ipcRenderer.invoke('player:get', playerId),
+    getSession: () => ipcRenderer.invoke('player:get-session'),
     identify: (payload: { qrPayload?: string; playerId?: string; pin?: string }) =>
       ipcRenderer.invoke('player:identify', payload),
-    clear: () => ipcRenderer.invoke('player:clear')
+    clear: () => ipcRenderer.invoke('player:clear'),
+    qrDataUrl: (playerId?: string) => ipcRenderer.invoke('player:qr-data-url', playerId)
   },
 
   achievements: {
     list: () => ipcRenderer.invoke('achievements:list'),
-    unlocks: (playerId?: string) => ipcRenderer.invoke('achievements:unlocks', playerId)
+    unlocks: (playerId?: string) => ipcRenderer.invoke('achievements:unlocks', playerId),
+    progress: (playerId?: string) => ipcRenderer.invoke('achievements:progress', playerId),
+    onUnlocked: (callback: (unlocks: unknown[]) => void) => {
+      const listener = (_event: unknown, unlocks: unknown[]) => callback(unlocks);
+      ipcRenderer.on('achievements:unlocked', listener);
+      return () => ipcRenderer.removeListener('achievements:unlocked', listener);
+    }
   },
 
   rewards: {
@@ -269,19 +277,26 @@ declare global {
         onGameExited: (callback: () => void) => () => void;
       };
       player: {
-        create: (displayName: string, pin?: string) => Promise<any>;
+        create: (
+          displayName: string,
+          pin?: string
+        ) => Promise<{ ok: true; profile: any } | { ok: false; reason: string }>;
         list: () => Promise<any[]>;
         get: (playerId: string) => Promise<any | null>;
+        getSession: () => Promise<{ player: any | null; displayName: string }>;
         identify: (payload: {
           qrPayload?: string;
           playerId?: string;
           pin?: string;
-        }) => Promise<any | null>;
+        }) => Promise<{ ok: true; profile: any } | { ok: false; reason: string }>;
         clear: () => Promise<boolean>;
+        qrDataUrl: (playerId?: string) => Promise<string | null>;
       };
       achievements: {
         list: () => Promise<any[]>;
         unlocks: (playerId?: string) => Promise<any[]>;
+        progress: (playerId?: string) => Promise<any[]>;
+        onUnlocked: (callback: (unlocks: unknown[]) => void) => () => void;
       };
       rewards: {
         list: (activeOnly?: boolean) => Promise<any[]>;

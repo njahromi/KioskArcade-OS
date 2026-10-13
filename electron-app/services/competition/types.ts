@@ -106,6 +106,32 @@ export interface PlayerProfile {
   readonly seasonalRank: number | null;
 }
 
+/** Safe profile shape for renderer / IPC (never includes pinHash). */
+export interface PublicPlayerProfile {
+  readonly id: string;
+  readonly displayName: string;
+  readonly hasPin: boolean;
+  readonly qrPayload: string;
+  readonly createdAt: string;
+  readonly personalBests: Record<string, number>;
+  readonly achievementIds: readonly string[];
+  readonly tournamentHistory: readonly string[];
+  readonly seasonalRank: number | null;
+}
+
+export interface AchievementProgress {
+  readonly achievementId: string;
+  readonly name: string;
+  readonly description: string;
+  readonly gameId: string | '*';
+  readonly unlocked: boolean;
+  readonly unlockedAt: string | null;
+  /** 0–1 progress estimate from personal bests / last known values */
+  readonly progress: number;
+  readonly currentValue: number;
+  readonly targetValue: number;
+}
+
 export interface AchievementDefinition {
   readonly id: string;
   readonly gameId: string | '*';

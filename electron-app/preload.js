@@ -88,12 +88,20 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
         create: (displayName, pin) => electron_1.ipcRenderer.invoke('player:create', { displayName, pin }),
         list: () => electron_1.ipcRenderer.invoke('player:list'),
         get: (playerId) => electron_1.ipcRenderer.invoke('player:get', playerId),
+        getSession: () => electron_1.ipcRenderer.invoke('player:get-session'),
         identify: (payload) => electron_1.ipcRenderer.invoke('player:identify', payload),
-        clear: () => electron_1.ipcRenderer.invoke('player:clear')
+        clear: () => electron_1.ipcRenderer.invoke('player:clear'),
+        qrDataUrl: (playerId) => electron_1.ipcRenderer.invoke('player:qr-data-url', playerId)
     },
     achievements: {
         list: () => electron_1.ipcRenderer.invoke('achievements:list'),
-        unlocks: (playerId) => electron_1.ipcRenderer.invoke('achievements:unlocks', playerId)
+        unlocks: (playerId) => electron_1.ipcRenderer.invoke('achievements:unlocks', playerId),
+        progress: (playerId) => electron_1.ipcRenderer.invoke('achievements:progress', playerId),
+        onUnlocked: (callback) => {
+            const listener = (_event, unlocks) => callback(unlocks);
+            electron_1.ipcRenderer.on('achievements:unlocked', listener);
+            return () => electron_1.ipcRenderer.removeListener('achievements:unlocked', listener);
+        }
     },
     rewards: {
         list: (activeOnly) => electron_1.ipcRenderer.invoke('rewards:list', activeOnly),

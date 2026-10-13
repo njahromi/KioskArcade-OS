@@ -247,19 +247,28 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
             {flagged.map((s: {
               id: string;
               displayName: string;
+              playerId: string | null;
+              gameId: string;
               score: number;
               validationReason?: string;
+              submittedAt: string;
             }) => (
               <li
                 key={s.id}
                 className="flex flex-wrap items-center justify-between gap-2 bg-gray-900/50 rounded px-3 py-2 text-sm"
               >
-                <span className="text-gray-200">
-                  {s.displayName}: <span className="font-mono">{s.score}</span>
-                  {s.validationReason && (
-                    <span className="text-amber-500 ml-2 text-xs">{s.validationReason}</span>
-                  )}
-                </span>
+                <div className="text-gray-200 min-w-0">
+                  <div>
+                    {s.displayName}: <span className="font-mono">{s.score}</span>
+                    <span className="text-gray-500 ml-2 font-mono text-xs">{s.gameId}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {s.playerId ? `player ${s.playerId.slice(0, 8)}…` : 'anonymous guest'}
+                    {s.validationReason && (
+                      <span className="text-amber-500 ml-2">{s.validationReason}</span>
+                    )}
+                  </div>
+                </div>
                 <span className="flex gap-2">
                   <button
                     type="button"

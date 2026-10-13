@@ -25,7 +25,19 @@ const TournamentBrowser: React.FC<TournamentBrowserProps> = ({ onLaunchGame }) =
     queryFn: () => window.electronAPI.competition.getDisplayName()
   });
 
+  const { data: session } = useQuery({
+    queryKey: ['playerSession'],
+    queryFn: () => window.electronAPI.player.getSession(),
+    refetchInterval: 15_000
+  });
+
+  const signedInName = session?.player?.displayName as string | undefined;
+
   const saveName = async () => {
+    if (signedInName) {
+      toast('Using your player profile name', { icon: '👤' });
+      return;
+    }
     const name = await window.electronAPI.competition.setDisplayName(displayName || savedName || 'Player');
     toast.success(`Playing as ${name}`);
     void queryClient.invalidateQueries({ queryKey: ['competitionDisplayName'] });
@@ -40,6 +52,7 @@ const TournamentBrowser: React.FC<TournamentBrowserProps> = ({ onLaunchGame }) =
             {active
               ? `Live: ${active.name} (${active.gameId})`
               : 'No active event — play for fun or ask staff to start one'}
+            {signedInName ? ` · Signed in as ${signedInName}` : ''}
           </p>
         </div>
         <button
@@ -47,28 +60,32 @@ const TournamentBrowser: React.FC<TournamentBrowserProps> = ({ onLaunchGame }) =
           onClick={() => setShowHub((v) => !v)}
           className="px-4 py-2 rounded bg-amber-700 hover:bg-amber-600 text-white text-sm font-medium"
         >
-          {showHub ? 'Hide standings' : 'View standings'}
+          {showHub ? 'Hide hub' : 'Players & standings'}
         </button>
       </div>
 
       {active && (
         <div className="flex flex-wrap gap-2 items-end">
-          <label className="text-xs text-gray-300">
-            Display name
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder={savedName || 'Player'}
-              className="mt-1 block rounded bg-gray-800 border border-gray-600 px-3 py-2 text-white text-sm min-w-[160px]"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => void saveName()}
-            className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm"
-          >
-            Save name
-          </button>
+          {!signedInName && (
+            <>
+              <label className="text-xs text-gray-300">
+                Guest display name
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={savedName || 'Player'}
+                  className="mt-1 block rounded bg-gray-800 border border-gray-600 px-3 py-2 text-white text-sm min-w-[160px]"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void saveName()}
+                className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm"
+              >
+                Save name
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => onLaunchGame(active.gameId)}

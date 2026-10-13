@@ -110,19 +110,26 @@ interface Window {
       onGameExited: (callback: () => void) => () => void;
     };
     player: {
-      create: (displayName: string, pin?: string) => Promise<any>;
+      create: (
+        displayName: string,
+        pin?: string
+      ) => Promise<{ ok: true; profile: any } | { ok: false; reason: string }>;
       list: () => Promise<any[]>;
       get: (playerId: string) => Promise<any | null>;
+      getSession: () => Promise<{ player: any | null; displayName: string }>;
       identify: (payload: {
         qrPayload?: string;
         playerId?: string;
         pin?: string;
-      }) => Promise<any | null>;
+      }) => Promise<{ ok: true; profile: any } | { ok: false; reason: string }>;
       clear: () => Promise<boolean>;
+      qrDataUrl: (playerId?: string) => Promise<string | null>;
     };
     achievements: {
       list: () => Promise<any[]>;
       unlocks: (playerId?: string) => Promise<any[]>;
+      progress: (playerId?: string) => Promise<any[]>;
+      onUnlocked: (callback: (unlocks: unknown[]) => void) => () => void;
     };
     rewards: {
       list: (activeOnly?: boolean) => Promise<any[]>;

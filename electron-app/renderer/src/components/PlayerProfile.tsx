@@ -1,58 +1,104 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
-import { UserPlus, QrCode, LogOut } from 'lucide-react';
+import { UserPlus, QrCode, LogOut, Copy, Shield } from 'lucide-react';
+
+interface PublicProfile {
+  readonly id: string;
+  readonly displayName: string;
+  readonly hasPin: boolean;
+  readonly qrPayload: string;
+  readonly personalBests: Record<string, number>;
+  readonly achievementIds: readonly string[];
+  readonly tournamentHistory: readonly string[];
+}
 
 const PlayerProfile: React.FC = () => {
   const queryClient = useQueryClient();
   const [displayName, setDisplayName] = useState('');
   const [pin, setPin] = useState('');
   const [qrPayload, setQrPayload] = useState('');
-  const [activeProfile, setActiveProfile] = useState<{
-    id: string;
-    displayName: string;
-    qrPayload: string;
-    personalBests: Record<string, number>;
-    achievementIds: string[];
-  } | null>(null);
+  const [mode, setMode] = useState<'create' | 'identify'>('create');
 
-  const { data: achievements = [] } = useQuery({
-    queryKey: ['achievements'],
-    queryFn: () => window.electronAPI.achievements.list()
+  const { data: session } = useQuery({
+    queryKey: ['playerSession'],
+    queryFn: () => window.electronAPI.player.getSession(),
+    refetchInterval: 15_000
   });
 
-  const { data: unlocks = [] } = useQuery({
-    queryKey: ['achievementUnlocks', activeProfile?.id],
-    queryFn: () => window.electronAPI.achievements.unlocks(activeProfile?.id),
+  const activeProfile = (session?.player as PublicProfile | null) ?? null;
+
+  const { data: qrDataUrl } = useQuery({
+    queryKey: ['playerQr', activeProfile?.id],
+    queryFn: () => window.electronAPI.player.qrDataUrl(activeProfile?.id),
     enabled: !!activeProfile?.id
   });
 
-  const create = async () => {
-    const profile = await window.electronAPI.player.create(displayName || 'Player', pin || undefined);
-    await window.electronAPI.player.identify({ playerId: profile.id, pin: pin || undefined });
-    setActiveProfile(profile);
-    toast.success(`Profile created. QR: ${profile.qrPayload}`);
+  useEffect(() => {
+    const off = window.electronAPI.competition.onScoreSubmitted?.(() => {
+      void queryClient.invalidateQueries({ queryKey: ['playerSession'] });
+      void queryClient.invalidateQueries({ queryKey: ['achievementProgress'] });
+    });
+    return () => off?.();
+  }, [queryClient]);
+
+  const refreshSession = () => {
+    void queryClient.invalidateQueries({ queryKey: ['playerSession'] });
     void queryClient.invalidateQueries({ queryKey: ['competitionDisplayName'] });
+    void queryClient.invalidateQueries({ queryKey: ['achievementProgress'] });
+    void queryClient.invalidateQueries({ queryKey: ['playerQr'] });
+  };
+
+  const create = async () => {
+    const result = await window.electronAPI.player.create(displayName || 'Player', pin || undefined);
+    if (!result.ok) {
+      toast.error(result.reason || 'Could not create profile');
+      return;
+    }
+    setPin('');
+    toast.success(`Welcome, ${result.profile.displayName}! Save your QR for next visit.`);
+    refreshSession();
   };
 
   const identify = async () => {
-    const profile = await window.electronAPI.player.identify({
+    if (!qrPayload.trim()) {
+      toast.error('Paste your player QR code text');
+      return;
+    }
+    const result = await window.electronAPI.player.identify({
       qrPayload: qrPayload.trim(),
       pin: pin || undefined
     });
-    if (!profile) {
-      toast.error('Could not identify player (check QR / PIN)');
+    if (!result.ok) {
+      if (result.reason === 'pin_required') {
+        toast.error('This profile needs a PIN');
+      } else if (result.reason === 'not_found') {
+        toast.error('Player not found');
+      } else {
+        toast.error('Could not sign in');
+      }
       return;
     }
-    setActiveProfile(profile);
-    toast.success(`Welcome back, ${profile.displayName}`);
-    void queryClient.invalidateQueries({ queryKey: ['competitionDisplayName'] });
+    setPin('');
+    setQrPayload('');
+    toast.success(`Welcome back, ${result.profile.displayName}`);
+    refreshSession();
   };
 
   const clear = async () => {
     await window.electronAPI.player.clear();
-    setActiveProfile(null);
-    toast.success('Signed out of player profile');
+    toast.success('Signed out');
+    refreshSession();
+  };
+
+  const copyQr = async () => {
+    if (!activeProfile) return;
+    try {
+      await navigator.clipboard.writeText(activeProfile.qrPayload);
+      toast.success('QR payload copied');
+    } catch {
+      toast.error('Could not copy');
+    }
   };
 
   return (
@@ -61,32 +107,58 @@ const PlayerProfile: React.FC = () => {
         <QrCode size={18} />
         Player identity
       </h3>
+
       {activeProfile ? (
-        <div className="space-y-2 text-sm">
-          <p className="text-emerald-300">
-            Signed in as <strong>{activeProfile.displayName}</strong>
-          </p>
-          <p className="text-gray-400 font-mono text-xs break-all">{activeProfile.qrPayload}</p>
+        <div className="space-y-3 text-sm">
+          <div className="flex flex-wrap gap-4 items-start">
+            {qrDataUrl && (
+              <img
+                src={qrDataUrl}
+                alt="Player QR code"
+                className="w-36 h-36 rounded bg-white p-1 border border-gray-600"
+              />
+            )}
+            <div className="space-y-2 min-w-0 flex-1">
+              <p className="text-emerald-300 text-base">
+                Signed in as <strong>{activeProfile.displayName}</strong>
+              </p>
+              {activeProfile.hasPin && (
+                <p className="inline-flex items-center gap-1 text-xs text-slate-300">
+                  <Shield size={12} />
+                  PIN protected
+                </p>
+              )}
+              <p className="text-gray-500 font-mono text-[11px] break-all">{activeProfile.qrPayload}</p>
+              <button
+                type="button"
+                onClick={() => void copyQr()}
+                className="inline-flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200"
+              >
+                <Copy size={12} />
+                Copy QR text
+              </button>
+            </div>
+          </div>
+
           {Object.keys(activeProfile.personalBests || {}).length > 0 && (
-            <ul className="text-gray-300">
-              {Object.entries(activeProfile.personalBests).map(([game, score]) => (
-                <li key={game}>
-                  {game}: {score}
-                </li>
-              ))}
-            </ul>
-          )}
-          {unlocks.length > 0 && (
             <div>
-              <p className="text-gray-400 mb-1">Achievements</p>
-              <ul className="text-amber-200 text-xs space-y-1">
-                {unlocks.map((u: { achievementId: string }) => {
-                  const def = achievements.find((a: { id: string }) => a.id === u.achievementId);
-                  return <li key={u.achievementId}>{def?.name ?? u.achievementId}</li>;
-                })}
+              <p className="text-gray-400 text-xs mb-1">Personal bests</p>
+              <ul className="grid grid-cols-2 gap-1 text-gray-200">
+                {Object.entries(activeProfile.personalBests).map(([game, score]) => (
+                  <li key={game} className="bg-gray-900/60 rounded px-2 py-1 font-mono text-xs">
+                    {game}: {score}
+                  </li>
+                ))}
               </ul>
             </div>
           )}
+
+          {activeProfile.tournamentHistory?.length > 0 && (
+            <p className="text-xs text-gray-400">
+              Competitions played: {activeProfile.tournamentHistory.length}
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() => void clear()}
@@ -97,49 +169,84 @@ const PlayerProfile: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-xs text-gray-300">
-            Display name
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm"
-            />
-          </label>
-          <label className="text-xs text-gray-300">
-            Optional PIN
-            <input
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              type="password"
-              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm"
-            />
-          </label>
-          <label className="text-xs text-gray-300 sm:col-span-2">
-            Or paste QR payload
-            <input
-              value={qrPayload}
-              onChange={(e) => setQrPayload(e.target.value)}
-              placeholder="kioskarcade:player:…"
-              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm font-mono"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => void create()}
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
-          >
-            <UserPlus size={16} />
-            Create profile
-          </button>
-          <button
-            type="button"
-            onClick={() => void identify()}
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-white text-sm"
-          >
-            <QrCode size={16} />
-            Identify
-          </button>
+        <div className="space-y-3">
+          <div className="flex gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode('create')}
+              className={`px-3 py-1 rounded ${mode === 'create' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+            >
+              New player
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('identify')}
+              className={`px-3 py-1 rounded ${mode === 'identify' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+            >
+              Returning player
+            </button>
+          </div>
+
+          {mode === 'create' ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-gray-300">
+                Display name
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm"
+                />
+              </label>
+              <label className="text-xs text-gray-300">
+                Optional PIN (4–8 digits)
+                <input
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  inputMode="numeric"
+                  type="password"
+                  className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void create()}
+                className="sm:col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
+              >
+                <UserPlus size={16} />
+                Create profile &amp; sign in
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              <label className="text-xs text-gray-300">
+                Player QR text
+                <input
+                  value={qrPayload}
+                  onChange={(e) => setQrPayload(e.target.value)}
+                  placeholder="kioskarcade:player:…"
+                  className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm font-mono"
+                />
+              </label>
+              <label className="text-xs text-gray-300">
+                PIN (if protected)
+                <input
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  inputMode="numeric"
+                  type="password"
+                  className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-2 py-1.5 text-white text-sm"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void identify()}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-white text-sm"
+              >
+                <QrCode size={16} />
+                Sign in
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
 import { Logger } from '../utils/Logger';
-import { PlayerProfile } from './competition/types';
+import { PlayerProfile, PublicPlayerProfile } from './competition/types';
 
 interface ProfileStore {
   profiles: PlayerProfile[];
@@ -41,24 +41,53 @@ export class PlayerProfileManager {
     return crypto.createHash('sha256').update(`kioskarcade:${pin}`).digest('hex');
   }
 
-  listProfiles(): PlayerProfile[] {
-    return [...this.profiles];
+  toPublic(profile: PlayerProfile): PublicPlayerProfile {
+    return {
+      id: profile.id,
+      displayName: profile.displayName,
+      hasPin: !!profile.pinHash,
+      qrPayload: profile.qrPayload,
+      createdAt: profile.createdAt,
+      personalBests: { ...profile.personalBests },
+      achievementIds: [...profile.achievementIds],
+      tournamentHistory: [...profile.tournamentHistory],
+      seasonalRank: profile.seasonalRank
+    };
+  }
+
+  listProfiles(): PublicPlayerProfile[] {
+    return this.profiles.map((p) => this.toPublic(p));
   }
 
   getProfile(playerId: string): PlayerProfile | null {
     return this.profiles.find((p) => p.id === playerId) ?? null;
   }
 
-  findByQrPayload(qrPayload: string): PlayerProfile | null {
-    return this.profiles.find((p) => p.qrPayload === qrPayload) ?? null;
+  getPublicProfile(playerId: string): PublicPlayerProfile | null {
+    const profile = this.getProfile(playerId);
+    return profile ? this.toPublic(profile) : null;
   }
 
-  async createProfile(displayName: string, pin?: string): Promise<PlayerProfile> {
+  findByQrPayload(qrPayload: string): PlayerProfile | null {
+    const cleaned = qrPayload.trim();
+    return this.profiles.find((p) => p.qrPayload === cleaned) ?? null;
+  }
+
+  requiresPin(playerId: string): boolean {
+    return !!this.getProfile(playerId)?.pinHash;
+  }
+
+  async createProfile(displayName: string, pin?: string): Promise<PublicPlayerProfile> {
+    const cleanedPin = pin?.trim();
+    if (cleanedPin !== undefined && cleanedPin.length > 0 && !/^\d{4,8}$/.test(cleanedPin)) {
+      throw new Error('PIN must be 4–8 digits');
+    }
+
     const id = randomUUID();
     const profile: PlayerProfile = {
       id,
       displayName: displayName.trim().slice(0, 24) || 'Player',
-      pinHash: pin ? this.hashPin(pin) : null,
+      pinHash: cleanedPin ? this.hashPin(cleanedPin) : null,
       qrPayload: `kioskarcade:player:${id}`,
       createdAt: new Date().toISOString(),
       personalBests: {},
@@ -68,13 +97,45 @@ export class PlayerProfileManager {
     };
     this.profiles.push(profile);
     await this.save();
-    return profile;
+    return this.toPublic(profile);
   }
 
-  verifyPin(playerId: string, pin: string): boolean {
+  /**
+   * Verify PIN when the profile has one.
+   * Returns false if a PIN is required but missing/wrong.
+   */
+  verifyPin(playerId: string, pin?: string): boolean {
     const profile = this.getProfile(playerId);
-    if (!profile?.pinHash) return true;
-    return profile.pinHash === this.hashPin(pin);
+    if (!profile) return false;
+    if (!profile.pinHash) return true;
+    if (!pin || !pin.trim()) return false;
+    return profile.pinHash === this.hashPin(pin.trim());
+  }
+
+  /**
+   * Identify by QR payload or player id, enforcing PIN when set.
+   */
+  identify(payload: {
+    readonly qrPayload?: string;
+    readonly playerId?: string;
+    readonly pin?: string;
+  }): { readonly ok: true; readonly profile: PublicPlayerProfile } | { readonly ok: false; readonly reason: string } {
+    const profile = payload.qrPayload
+      ? this.findByQrPayload(payload.qrPayload)
+      : payload.playerId
+        ? this.getProfile(payload.playerId)
+        : null;
+
+    if (!profile) {
+      return { ok: false, reason: 'not_found' };
+    }
+    if (!this.verifyPin(profile.id, payload.pin)) {
+      if (profile.pinHash && (!payload.pin || !payload.pin.trim())) {
+        return { ok: false, reason: 'pin_required' };
+      }
+      return { ok: false, reason: 'pin_invalid' };
+    }
+    return { ok: true, profile: this.toPublic(profile) };
   }
 
   async updatePersonalBest(playerId: string, gameId: string, score: number): Promise<boolean> {
