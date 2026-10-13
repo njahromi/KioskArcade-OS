@@ -68,11 +68,17 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
         reviewSubmission: (password, submissionId, decision) => electron_1.ipcRenderer.invoke('competition:review-submission', { password, submissionId, decision }),
         supportedGames: () => electron_1.ipcRenderer.invoke('competition:supported-games'),
         venueLeaderboard: (limit) => electron_1.ipcRenderer.invoke('competition:venue-leaderboard', limit),
+        eventTimers: () => electron_1.ipcRenderer.invoke('competition:event-timers'),
+        upcoming: (limit) => electron_1.ipcRenderer.invoke('competition:upcoming', limit),
         exitGame: () => electron_1.ipcRenderer.invoke('competition:exit-game'),
         listSchedules: () => electron_1.ipcRenderer.invoke('competition:list-schedules'),
         upsertSchedule: (password, schedule) => electron_1.ipcRenderer.invoke('competition:upsert-schedule', { password, schedule }),
+        removeSchedule: (password, scheduleId) => electron_1.ipcRenderer.invoke('competition:remove-schedule', { password, scheduleId }),
+        runScheduler: (password) => electron_1.ipcRenderer.invoke('competition:run-scheduler', password),
         syncNow: (password) => electron_1.ipcRenderer.invoke('competition:sync-now', password),
         syncQueue: () => electron_1.ipcRenderer.invoke('competition:sync-queue'),
+        syncStatus: () => electron_1.ipcRenderer.invoke('competition:sync-status'),
+        setSyncEnabled: (password, enabled) => electron_1.ipcRenderer.invoke('competition:set-sync-enabled', { password, enabled }),
         onScoreSubmitted: (callback) => {
             const listener = (_event, submission) => callback(submission);
             electron_1.ipcRenderer.on('competition:score-submitted', listener);
@@ -82,6 +88,16 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
             const listener = () => callback();
             electron_1.ipcRenderer.on('competition:game-exited', listener);
             return () => electron_1.ipcRenderer.removeListener('competition:game-exited', listener);
+        },
+        onEventSpawned: (callback) => {
+            const listener = (_event, competition) => callback(competition);
+            electron_1.ipcRenderer.on('competition:event-spawned', listener);
+            return () => electron_1.ipcRenderer.removeListener('competition:event-spawned', listener);
+        },
+        onSyncStatus: (callback) => {
+            const listener = (_event, status) => callback(status);
+            electron_1.ipcRenderer.on('competition:sync-status', listener);
+            return () => electron_1.ipcRenderer.removeListener('competition:sync-status', listener);
         }
     },
     player: {

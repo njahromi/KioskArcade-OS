@@ -88,6 +88,8 @@ interface Window {
       ) => Promise<any | null>;
       supportedGames: () => Promise<string[]>;
       venueLeaderboard: (limit?: number) => Promise<any[]>;
+      eventTimers: () => Promise<any[]>;
+      upcoming: (limit?: number) => Promise<any[]>;
       exitGame: () => Promise<boolean>;
       listSchedules: () => Promise<any[]>;
       upsertSchedule: (
@@ -102,12 +104,19 @@ interface Window {
           enabled: boolean;
           seasonId?: string | null;
           bracketEnabled?: boolean;
+          weeklyDay?: number;
         }
       ) => Promise<any | null>;
+      removeSchedule: (password: string, scheduleId: string) => Promise<boolean>;
+      runScheduler: (password: string) => Promise<any[] | null>;
       syncNow: (password: string) => Promise<{ pushed: number; pulled: number } | null>;
       syncQueue: () => Promise<any[]>;
+      syncStatus: () => Promise<any>;
+      setSyncEnabled: (password: string, enabled: boolean) => Promise<any | null>;
       onScoreSubmitted: (callback: (submission: unknown) => void) => () => void;
       onGameExited: (callback: () => void) => () => void;
+      onEventSpawned: (callback: (competition: unknown) => void) => () => void;
+      onSyncStatus: (callback: (status: unknown) => void) => () => void;
     };
     player: {
       create: (

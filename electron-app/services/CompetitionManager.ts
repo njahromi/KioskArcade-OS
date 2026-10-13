@@ -396,31 +396,78 @@ export class CompetitionManager {
     return this.submissions[idx];
   }
 
-  /** Used by sync service to merge remote scores with max-score-wins. */
-  async mergeRemoteSubmission(submission: ScoreSubmission): Promise<boolean> {
-    const exists = this.submissions.some((s) => s.id === submission.id);
-    if (exists) return false;
+  private identityKey(submission: ScoreSubmission): string {
+    if (submission.playerId) return `player:${submission.playerId}`;
+    return `name:${submission.displayName.toLowerCase()}`;
+  }
 
-    const duplicateSession = this.submissions.some(
-      (s) => s.sessionId === submission.sessionId && s.competitionId === submission.competitionId
+  /**
+   * Merge a remote score.
+   * - Exact id / session duplicates are skipped.
+   * - Same player (or display name) in the same competition: keep higher score (max-score-wins).
+   * - Rejected remotes are ignored; flagged/accepted are kept.
+   */
+  async mergeRemoteSubmission(submission: ScoreSubmission): Promise<'inserted' | 'replaced' | 'skipped'> {
+    if (submission.validation === 'rejected') return 'skipped';
+
+    if (this.submissions.some((s) => s.id === submission.id)) {
+      return 'skipped';
+    }
+
+    if (
+      this.submissions.some(
+        (s) => s.sessionId === submission.sessionId && s.competitionId === submission.competitionId
+      )
+    ) {
+      return 'skipped';
+    }
+
+    const competition = this.getCompetition(submission.competitionId);
+    const metric = competition?.metric ?? 'high_score';
+    const key = this.identityKey(submission);
+    const existingIdx = this.submissions.findIndex(
+      (s) =>
+        s.competitionId === submission.competitionId &&
+        this.identityKey(s) === key &&
+        s.validation !== 'rejected'
     );
-    if (duplicateSession) return false;
+
+    if (existingIdx >= 0) {
+      const existing = this.submissions[existingIdx];
+      const remoteBetter =
+        metric === 'fastest_time'
+          ? submission.score < existing.score
+          : submission.score > existing.score;
+      if (!remoteBetter) return 'skipped';
+      this.submissions[existingIdx] = submission;
+      await this.saveScores();
+      return 'replaced';
+    }
 
     this.submissions.push(submission);
     await this.saveScores();
-    return true;
+    return 'inserted';
   }
 
-  async mergeRemoteCompetition(competition: Competition): Promise<boolean> {
-    if (this.competitions.some((c) => c.id === competition.id)) {
-      const idx = this.competitions.findIndex((c) => c.id === competition.id);
-      this.competitions[idx] = competition;
+  async mergeRemoteCompetition(competition: Competition): Promise<'inserted' | 'updated'> {
+    const idx = this.competitions.findIndex((c) => c.id === competition.id);
+    if (idx >= 0) {
+      const current = this.competitions[idx];
+      // Prefer ended status and later endsAt from remote when resolving conflicts
+      this.competitions[idx] = {
+        ...current,
+        ...competition,
+        status:
+          current.status === 'ended' || competition.status === 'ended'
+            ? 'ended'
+            : competition.status
+      };
       await this.saveCompetitions();
-      return true;
+      return 'updated';
     }
     this.competitions.push(competition);
     await this.saveCompetitions();
-    return true;
+    return 'inserted';
   }
 
   getAllSubmissions(): ScoreSubmission[] {

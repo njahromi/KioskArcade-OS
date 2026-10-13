@@ -110,6 +110,13 @@ class KioskArcadeApp {
             const locationId = tokenData?.locationId || this.configManager.getConfig().arcade.locationId;
             this.competitionManager.setIdentityContext(arcadeId, locationId);
             this.competitionSyncService.setArcadeId(arcadeId);
+            this.tournamentScheduler.setOnCompetitionSpawned((competition) => {
+                this.competitionSyncService.enqueueCompetition(competition);
+                this.mainWindow?.webContents.send('competition:event-spawned', competition);
+            });
+            this.competitionSyncService.setOnSyncComplete((status) => {
+                this.mainWindow?.webContents.send('competition:sync-status', status);
+            });
             await this.tournamentScheduler.initialize();
             await this.competitionSyncService.initialize();
             // Refresh mock game HTML so score bridge is present on installed packages
@@ -389,6 +396,12 @@ class KioskArcadeApp {
         electron_1.ipcMain.handle('competition:venue-leaderboard', async (_event, limit) => {
             return this.leaderboardManager.getVenueTopScores(limit ?? 10);
         });
+        electron_1.ipcMain.handle('competition:event-timers', async () => {
+            return this.leaderboardManager.getActiveEventTimers();
+        });
+        electron_1.ipcMain.handle('competition:upcoming', async (_event, limit) => {
+            return this.tournamentScheduler.getUpcomingEvents(limit ?? 5);
+        });
         electron_1.ipcMain.handle('competition:exit-game', async () => {
             await this.closeGameSession();
             return true;
@@ -487,8 +500,21 @@ class KioskArcadeApp {
                 enabled: payload.schedule.enabled,
                 seasonId: payload.schedule.seasonId ?? null,
                 bracketEnabled: payload.schedule.bracketEnabled ?? false,
+                weeklyDay: payload.schedule.weeklyDay ?? existing?.weeklyDay ?? 1,
                 lastSpawnedDate: existing?.lastSpawnedDate ?? null
             });
+        });
+        electron_1.ipcMain.handle('competition:remove-schedule', async (_event, payload) => {
+            const ok = await this.adminManager.authenticate(payload.password);
+            if (!ok)
+                return false;
+            return this.tournamentScheduler.removeSchedule(payload.scheduleId);
+        });
+        electron_1.ipcMain.handle('competition:run-scheduler', async (_event, password) => {
+            const ok = await this.adminManager.authenticate(password);
+            if (!ok)
+                return null;
+            return this.tournamentScheduler.tick();
         });
         electron_1.ipcMain.handle('competition:sync-now', async (_event, password) => {
             const ok = await this.adminManager.authenticate(password);
@@ -497,6 +523,13 @@ class KioskArcadeApp {
             return this.competitionSyncService.syncNow();
         });
         electron_1.ipcMain.handle('competition:sync-queue', async () => this.competitionSyncService.getQueue());
+        electron_1.ipcMain.handle('competition:sync-status', async () => this.competitionSyncService.getStatus());
+        electron_1.ipcMain.handle('competition:set-sync-enabled', async (_event, payload) => {
+            const ok = await this.adminManager.authenticate(payload.password);
+            if (!ok)
+                return null;
+            return this.competitionSyncService.setEnabled(payload.enabled);
+        });
         // Phase 4 — rewards
         electron_1.ipcMain.handle('rewards:list', async (_event, activeOnly) => {
             return this.rewardManager.listRewards(!!activeOnly);

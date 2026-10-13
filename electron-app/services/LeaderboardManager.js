@@ -2,8 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LeaderboardManager = void 0;
 /**
- * Thin ranking facade extracted for Phase 3+ venue-wide views.
- * Phase 1 ranking still lives on CompetitionManager; this aggregates across competitions.
+ * Ranking facade for Phase 3 venue-wide / idle cabinet displays.
  */
 class LeaderboardManager {
     constructor(competitionManager) {
@@ -15,25 +14,61 @@ class LeaderboardManager {
     getActiveLeaderboard(gameId, limit = 20) {
         const active = this.competitionManager.getActiveCompetition(gameId);
         if (!active) {
-            return { competitionId: null, entries: [] };
+            return { competition: null, entries: [] };
         }
         return {
-            competitionId: active.id,
+            competition: active,
             entries: this.competitionManager.getLeaderboard(active.id, limit)
         };
     }
     getVenueTopScores(limit = 10) {
         const comps = this.competitionManager.listCompetitions().filter((c) => c.status !== 'scheduled');
+        const submissions = this.competitionManager.getAllSubmissions();
         const combined = [];
         for (const c of comps) {
             for (const entry of this.competitionManager.getLeaderboard(c.id, limit)) {
-                combined.push({ ...entry, competitionId: c.id, gameId: c.gameId });
+                const raw = submissions.find((s) => s.id === entry.submissionId);
+                combined.push({
+                    ...entry,
+                    competitionId: c.id,
+                    competitionName: c.name,
+                    gameId: c.gameId,
+                    arcadeId: raw?.arcadeId ?? null
+                });
             }
         }
-        return combined
+        // Dedupe by player identity across venue — keep best score
+        const best = new Map();
+        for (const entry of combined) {
+            const key = entry.playerId ?? `name:${entry.displayName.toLowerCase()}:${entry.gameId}`;
+            const existing = best.get(key);
+            if (!existing || entry.score > existing.score) {
+                best.set(key, entry);
+            }
+        }
+        return Array.from(best.values())
             .sort((a, b) => b.score - a.score)
             .slice(0, limit)
             .map((entry, index) => ({ ...entry, rank: index + 1 }));
+    }
+    getActiveEventTimers() {
+        const now = Date.now();
+        return this.competitionManager
+            .listCompetitions()
+            .filter((c) => c.status === 'active')
+            .map((c) => {
+            const board = this.competitionManager.getLeaderboard(c.id, 1);
+            const endsAtMs = c.endsAt ? Date.parse(c.endsAt) : null;
+            return {
+                competitionId: c.id,
+                name: c.name,
+                gameId: c.gameId,
+                endsAt: c.endsAt,
+                remainingMs: endsAtMs && Number.isFinite(endsAtMs) ? Math.max(0, endsAtMs - now) : null,
+                topScore: board[0]?.score ?? null,
+                topPlayer: board[0]?.displayName ?? null
+            };
+        });
     }
 }
 exports.LeaderboardManager = LeaderboardManager;

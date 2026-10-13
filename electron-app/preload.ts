@@ -91,6 +91,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     supportedGames: () => ipcRenderer.invoke('competition:supported-games'),
     venueLeaderboard: (limit?: number) =>
       ipcRenderer.invoke('competition:venue-leaderboard', limit),
+    eventTimers: () => ipcRenderer.invoke('competition:event-timers'),
+    upcoming: (limit?: number) => ipcRenderer.invoke('competition:upcoming', limit),
     exitGame: () => ipcRenderer.invoke('competition:exit-game'),
     listSchedules: () => ipcRenderer.invoke('competition:list-schedules'),
     upsertSchedule: (password: string, schedule: {
@@ -103,9 +105,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       enabled: boolean;
       seasonId?: string | null;
       bracketEnabled?: boolean;
+      weeklyDay?: number;
     }) => ipcRenderer.invoke('competition:upsert-schedule', { password, schedule }),
+    removeSchedule: (password: string, scheduleId: string) =>
+      ipcRenderer.invoke('competition:remove-schedule', { password, scheduleId }),
+    runScheduler: (password: string) => ipcRenderer.invoke('competition:run-scheduler', password),
     syncNow: (password: string) => ipcRenderer.invoke('competition:sync-now', password),
     syncQueue: () => ipcRenderer.invoke('competition:sync-queue'),
+    syncStatus: () => ipcRenderer.invoke('competition:sync-status'),
+    setSyncEnabled: (password: string, enabled: boolean) =>
+      ipcRenderer.invoke('competition:set-sync-enabled', { password, enabled }),
     onScoreSubmitted: (callback: (submission: unknown) => void) => {
       const listener = (_event: unknown, submission: unknown) => callback(submission);
       ipcRenderer.on('competition:score-submitted', listener);
@@ -115,6 +124,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = () => callback();
       ipcRenderer.on('competition:game-exited', listener);
       return () => ipcRenderer.removeListener('competition:game-exited', listener);
+    },
+    onEventSpawned: (callback: (competition: unknown) => void) => {
+      const listener = (_event: unknown, competition: unknown) => callback(competition);
+      ipcRenderer.on('competition:event-spawned', listener);
+      return () => ipcRenderer.removeListener('competition:event-spawned', listener);
+    },
+    onSyncStatus: (callback: (status: unknown) => void) => {
+      const listener = (_event: unknown, status: unknown) => callback(status);
+      ipcRenderer.on('competition:sync-status', listener);
+      return () => ipcRenderer.removeListener('competition:sync-status', listener);
     }
   },
 
@@ -258,6 +277,8 @@ declare global {
         ) => Promise<any | null>;
         supportedGames: () => Promise<string[]>;
         venueLeaderboard: (limit?: number) => Promise<any[]>;
+        eventTimers: () => Promise<any[]>;
+        upcoming: (limit?: number) => Promise<any[]>;
         exitGame: () => Promise<boolean>;
         listSchedules: () => Promise<any[]>;
         upsertSchedule: (password: string, schedule: {
@@ -270,11 +291,18 @@ declare global {
           enabled: boolean;
           seasonId?: string | null;
           bracketEnabled?: boolean;
+          weeklyDay?: number;
         }) => Promise<any | null>;
+        removeSchedule: (password: string, scheduleId: string) => Promise<boolean>;
+        runScheduler: (password: string) => Promise<any[] | null>;
         syncNow: (password: string) => Promise<{ pushed: number; pulled: number } | null>;
         syncQueue: () => Promise<any[]>;
+        syncStatus: () => Promise<any>;
+        setSyncEnabled: (password: string, enabled: boolean) => Promise<any | null>;
         onScoreSubmitted: (callback: (submission: unknown) => void) => () => void;
         onGameExited: (callback: () => void) => () => void;
+        onEventSpawned: (callback: (competition: unknown) => void) => () => void;
+        onSyncStatus: (callback: (status: unknown) => void) => () => void;
       };
       player: {
         create: (

@@ -184,6 +184,27 @@ export interface SyncQueueItem {
   readonly createdAt: string;
   readonly attempts: number;
   readonly lastError: string | null;
+  readonly originArcadeId: string;
+}
+
+export interface SyncStatus {
+  readonly enabled: boolean;
+  readonly queueDepth: number;
+  readonly lastPullCursor: string | null;
+  readonly lastSyncAt: string | null;
+  readonly lastResult: { readonly pushed: number; readonly pulled: number } | null;
+  readonly hubDir: string;
+  readonly arcadeId: string;
+}
+
+export interface UpcomingEvent {
+  readonly scheduleId: string;
+  readonly name: string;
+  readonly gameId: string;
+  readonly cadence: 'daily' | 'weekly' | 'once';
+  readonly nextStartAt: string;
+  readonly durationMinutes: number;
+  readonly enabled: boolean;
 }
 
 export interface CompetitionTransport {

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
-import { Flag, Plus, Square, RefreshCw, Gift } from 'lucide-react';
+import { Flag, Plus, Square, RefreshCw, Gift, Trash2, Network } from 'lucide-react';
 
 interface TournamentAdminProps {
   readonly sessionPassword: string;
@@ -14,6 +14,9 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
   const [busy, setBusy] = useState(false);
   const [rewardName, setRewardName] = useState('Free Play Credit');
   const [scheduleName, setScheduleName] = useState('Evening Challenge');
+  const [scheduleTime, setScheduleTime] = useState('18:00');
+  const [scheduleCadence, setScheduleCadence] = useState<'daily' | 'weekly' | 'once'>('daily');
+  const [durationMinutes, setDurationMinutes] = useState(120);
 
   const { data: supportedGames = [] } = useQuery({
     queryKey: ['competitionSupportedGames'],
@@ -38,12 +41,37 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
     refetchInterval: 15_000
   });
 
+  const { data: schedules = [] } = useQuery({
+    queryKey: ['tournamentSchedules'],
+    queryFn: () => window.electronAPI.competition.listSchedules(),
+    refetchInterval: 15_000
+  });
+
+  const { data: syncStatus } = useQuery({
+    queryKey: ['competitionSyncStatus'],
+    queryFn: () => window.electronAPI.competition.syncStatus(),
+    refetchInterval: 10_000
+  });
+
+  useEffect(() => {
+    const off = window.electronAPI.competition.onSyncStatus?.(() => {
+      void queryClient.invalidateQueries({ queryKey: ['competitionSyncStatus'] });
+      void queryClient.invalidateQueries({ queryKey: ['venueLeaderboard'] });
+    });
+    return () => off?.();
+  }, [queryClient]);
+
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['competitions'] });
     void queryClient.invalidateQueries({ queryKey: ['competitionActive'] });
     void queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
     void queryClient.invalidateQueries({ queryKey: ['flaggedScores'] });
     void queryClient.invalidateQueries({ queryKey: ['rewardRedemptions'] });
+    void queryClient.invalidateQueries({ queryKey: ['tournamentSchedules'] });
+    void queryClient.invalidateQueries({ queryKey: ['competitionSyncStatus'] });
+    void queryClient.invalidateQueries({ queryKey: ['venueLeaderboard'] });
+    void queryClient.invalidateQueries({ queryKey: ['eventTimers'] });
+    void queryClient.invalidateQueries({ queryKey: ['upcomingEvents'] });
   };
 
   const createCompetition = async () => {
@@ -98,9 +126,20 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
     const result = await window.electronAPI.competition.syncNow(sessionPassword);
     if (result) {
       toast.success(`Synced (pushed ${result.pushed}, pulled ${result.pulled})`);
+      refresh();
     } else {
-      toast.error('Sync failed or disabled');
+      toast.error('Sync failed or disabled — enable venue sync first');
     }
+  };
+
+  const toggleSync = async (enabled: boolean) => {
+    const status = await window.electronAPI.competition.setSyncEnabled(sessionPassword, enabled);
+    if (!status) {
+      toast.error('Could not update sync setting');
+      return;
+    }
+    toast.success(enabled ? 'Venue sync enabled' : 'Venue sync disabled');
+    refresh();
   };
 
   const createReward = async () => {
@@ -117,22 +156,46 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
     }
   };
 
-  const addDailySchedule = async () => {
+  const addSchedule = async () => {
     const schedule = await window.electronAPI.competition.upsertSchedule(sessionPassword, {
       name: scheduleName,
       gameId,
-      cadence: 'daily',
-      startTime: '18:00',
-      durationMinutes: 120,
+      cadence: scheduleCadence,
+      startTime: scheduleTime,
+      durationMinutes,
       enabled: true,
       seasonId: null,
-      bracketEnabled: false
+      bracketEnabled: false,
+      weeklyDay: 1
     });
     if (schedule) {
-      toast.success('Daily schedule saved (spawns at 18:00 local)');
+      toast.success(
+        `${scheduleCadence} schedule saved (${scheduleTime} local, ${durationMinutes}m)`
+      );
+      refresh();
     } else {
       toast.error('Could not save schedule');
     }
+  };
+
+  const removeSchedule = async (scheduleId: string) => {
+    const ok = await window.electronAPI.competition.removeSchedule(sessionPassword, scheduleId);
+    if (ok) {
+      toast.success('Schedule removed');
+      refresh();
+    } else {
+      toast.error('Could not remove schedule');
+    }
+  };
+
+  const runSchedulerNow = async () => {
+    const spawned = await window.electronAPI.competition.runScheduler(sessionPassword);
+    if (spawned === null) {
+      toast.error('Scheduler run failed');
+      return;
+    }
+    toast.success(spawned.length ? `Spawned ${spawned.length} event(s)` : 'No events due right now');
+    refresh();
   };
 
   const approveRedemption = async (redemptionId: string) => {
@@ -190,12 +253,45 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
             <Plus size={18} />
             Start competition
           </button>
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+          <Network size={18} />
+          Venue sync (Phase 3)
+        </h3>
+        <p className="text-gray-400 text-sm mb-3">
+          Cabinets sharing the same hub folder exchange scores offline-first. Queue drains when sync runs.
+        </p>
+        <div className="text-xs text-gray-400 font-mono mb-3 space-y-1">
+          <div>Status: {syncStatus?.enabled ? 'enabled' : 'disabled'}</div>
+          <div>Queue: {syncStatus?.queueDepth ?? 0}</div>
+          <div className="truncate">Hub: {syncStatus?.hubDir ?? '—'}</div>
+          <div>
+            Last sync:{' '}
+            {syncStatus?.lastSyncAt
+              ? new Date(syncStatus.lastSyncAt).toLocaleString()
+              : 'never'}
+            {syncStatus?.lastResult
+              ? ` (↑${syncStatus.lastResult.pushed} ↓${syncStatus.lastResult.pulled})`
+              : ''}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => void toggleSync(!(syncStatus?.enabled))}
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium"
+          >
+            {syncStatus?.enabled ? 'Disable sync' : 'Enable sync'}
+          </button>
           <button
             type="button"
             onClick={() => void syncNow()}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 text-white font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 text-white text-sm font-medium"
           >
-            <RefreshCw size={18} />
+            <RefreshCw size={16} />
             Sync now
           </button>
         </div>
@@ -293,23 +389,103 @@ const TournamentAdmin: React.FC<TournamentAdminProps> = ({ sessionPassword }) =>
 
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-2">Scheduled tournaments</h3>
-        <div className="flex flex-wrap gap-3 items-end">
-          <label className="text-sm text-gray-300 flex-1 min-w-[160px]">
-            Schedule name
+        <div className="grid gap-3 sm:grid-cols-2 mb-3">
+          <label className="text-sm text-gray-300">
+            Name
             <input
               value={scheduleName}
               onChange={(e) => setScheduleName(e.target.value)}
               className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
             />
           </label>
+          <label className="text-sm text-gray-300">
+            Start time (local)
+            <input
+              value={scheduleTime}
+              onChange={(e) => setScheduleTime(e.target.value)}
+              placeholder="18:00"
+              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white font-mono"
+            />
+          </label>
+          <label className="text-sm text-gray-300">
+            Cadence
+            <select
+              value={scheduleCadence}
+              onChange={(e) => setScheduleCadence(e.target.value as 'daily' | 'weekly' | 'once')}
+              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly (Mondays)</option>
+              <option value="once">Once</option>
+            </select>
+          </label>
+          <label className="text-sm text-gray-300">
+            Duration (minutes)
+            <input
+              type="number"
+              min={5}
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(Number(e.target.value) || 60)}
+              className="mt-1 w-full rounded bg-gray-900 border border-gray-600 px-3 py-2 text-white"
+            />
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-3 mb-4">
           <button
             type="button"
-            onClick={() => void addDailySchedule()}
+            onClick={() => void addSchedule()}
             className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
           >
-            Add daily 18:00
+            Save schedule
+          </button>
+          <button
+            type="button"
+            onClick={() => void runSchedulerNow()}
+            className="px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 text-white text-sm"
+          >
+            Run scheduler now
           </button>
         </div>
+        {schedules.length === 0 ? (
+          <p className="text-sm text-gray-400">No schedules yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {schedules.map(
+              (s: {
+                id: string;
+                name: string;
+                gameId: string;
+                cadence: string;
+                startTime: string;
+                durationMinutes: number;
+                enabled: boolean;
+                lastSpawnedDate: string | null;
+              }) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between gap-3 bg-gray-900/50 rounded px-3 py-2 text-sm"
+                >
+                  <div>
+                    <div className="text-white font-medium">{s.name}</div>
+                    <div className="text-gray-400 font-mono text-xs">
+                      {s.gameId} · {s.cadence} @ {s.startTime} · {s.durationMinutes}m
+                      {s.lastSpawnedDate ? ` · last ${s.lastSpawnedDate}` : ''}
+                      {!s.enabled ? ' · disabled' : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void removeSchedule(s.id)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/70 hover:bg-red-800 text-xs text-white"
+                  >
+                    <Trash2 size={12} />
+                    Remove
+                  </button>
+                </li>
+              )
+            )}
+          </ul>
+        )}
       </div>
 
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">

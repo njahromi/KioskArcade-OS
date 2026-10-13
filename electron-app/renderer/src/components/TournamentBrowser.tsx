@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
 import LiveLeaderboard from './LiveLeaderboard';
+import VenueLeaderboard from './VenueLeaderboard';
 import PlayerProfile from './PlayerProfile';
 import AchievementPanel from './AchievementPanel';
 
@@ -98,7 +99,10 @@ const TournamentBrowser: React.FC<TournamentBrowserProps> = ({ onLaunchGame }) =
 
       {showHub && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <LiveLeaderboard />
+          <div className="space-y-4">
+            <LiveLeaderboard />
+            <VenueLeaderboard />
+          </div>
           <div className="space-y-4">
             <PlayerProfile />
             <AchievementPanel />

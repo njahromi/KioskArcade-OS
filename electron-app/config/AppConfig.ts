@@ -1,3 +1,5 @@
+import * as path from 'path';
+
 export interface AppConfig {
   readonly app: {
     readonly name: string;
@@ -92,6 +94,11 @@ export interface AppConfig {
     /** Phase 3: attempt venue sync when online */
     readonly syncEnabled: boolean;
     readonly syncIntervalMs: number;
+    /**
+     * Shared hub directory for FileHubTransport (absolute or cwd-relative).
+     * Point multiple cabinets at the same folder (e.g. network share) to exchange results.
+     */
+    readonly hubDir: string;
   };
 }
 
@@ -193,7 +200,8 @@ export const defaultConfig: AppConfig = {
   competitions: {
     enabled: true,
     syncEnabled: false,
-    syncIntervalMs: 60_000
+    syncIntervalMs: 60_000,
+    hubDir: 'data/competition-hub'
   }
 };
 
@@ -256,5 +264,20 @@ export class ConfigManager {
 
   isCompetitionSyncEnabled(): boolean {
     return this.config.competitions.enabled && this.config.competitions.syncEnabled;
+  }
+
+  setCompetitionSyncEnabled(enabled: boolean): void {
+    this.config = {
+      ...this.config,
+      competitions: {
+        ...this.config.competitions,
+        syncEnabled: enabled
+      }
+    };
+  }
+
+  getCompetitionHubDir(): string {
+    const configured = this.config.competitions.hubDir || 'data/competition-hub';
+    return path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
   }
 } 

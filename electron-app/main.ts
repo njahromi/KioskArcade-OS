@@ -109,6 +109,13 @@ class KioskArcadeApp {
       const locationId = tokenData?.locationId || this.configManager.getConfig().arcade.locationId;
       this.competitionManager.setIdentityContext(arcadeId, locationId);
       this.competitionSyncService.setArcadeId(arcadeId);
+      this.tournamentScheduler.setOnCompetitionSpawned((competition) => {
+        this.competitionSyncService.enqueueCompetition(competition);
+        this.mainWindow?.webContents.send('competition:event-spawned', competition);
+      });
+      this.competitionSyncService.setOnSyncComplete((status) => {
+        this.mainWindow?.webContents.send('competition:sync-status', status);
+      });
 
       await this.tournamentScheduler.initialize();
       await this.competitionSyncService.initialize();
@@ -469,6 +476,14 @@ class KioskArcadeApp {
       return this.leaderboardManager.getVenueTopScores(limit ?? 10);
     });
 
+    ipcMain.handle('competition:event-timers', async () => {
+      return this.leaderboardManager.getActiveEventTimers();
+    });
+
+    ipcMain.handle('competition:upcoming', async (_event, limit?: number) => {
+      return this.tournamentScheduler.getUpcomingEvents(limit ?? 5);
+    });
+
     ipcMain.handle('competition:exit-game', async () => {
       await this.closeGameSession();
       return true;
@@ -584,6 +599,7 @@ class KioskArcadeApp {
             readonly enabled: boolean;
             readonly seasonId?: string | null;
             readonly bracketEnabled?: boolean;
+            readonly weeklyDay?: number;
           };
         }
       ) => {
@@ -601,10 +617,26 @@ class KioskArcadeApp {
           enabled: payload.schedule.enabled,
           seasonId: payload.schedule.seasonId ?? null,
           bracketEnabled: payload.schedule.bracketEnabled ?? false,
+          weeklyDay: payload.schedule.weeklyDay ?? existing?.weeklyDay ?? 1,
           lastSpawnedDate: existing?.lastSpawnedDate ?? null
         });
       }
     );
+
+    ipcMain.handle(
+      'competition:remove-schedule',
+      async (_event, payload: { readonly password: string; readonly scheduleId: string }) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return false;
+        return this.tournamentScheduler.removeSchedule(payload.scheduleId);
+      }
+    );
+
+    ipcMain.handle('competition:run-scheduler', async (_event, password: string) => {
+      const ok = await this.adminManager.authenticate(password);
+      if (!ok) return null;
+      return this.tournamentScheduler.tick();
+    });
 
     ipcMain.handle('competition:sync-now', async (_event, password: string) => {
       const ok = await this.adminManager.authenticate(password);
@@ -613,6 +645,17 @@ class KioskArcadeApp {
     });
 
     ipcMain.handle('competition:sync-queue', async () => this.competitionSyncService.getQueue());
+
+    ipcMain.handle('competition:sync-status', async () => this.competitionSyncService.getStatus());
+
+    ipcMain.handle(
+      'competition:set-sync-enabled',
+      async (_event, payload: { readonly password: string; readonly enabled: boolean }) => {
+        const ok = await this.adminManager.authenticate(payload.password);
+        if (!ok) return null;
+        return this.competitionSyncService.setEnabled(payload.enabled);
+      }
+    );
 
     // Phase 4 — rewards
     ipcMain.handle('rewards:list', async (_event, activeOnly?: boolean) => {
